@@ -188,8 +188,8 @@ sealed class Agent:Form
             {
                 var input=JsonSerializer.Deserialize<InputCommand>(body,Json.Options);
                 if(input is null||input.Text is null||input.Text.Length>1000){await Reply(c.Response,400,new{error="Entrada inválida."});return;}
-                if(input.Layout!=""&&input.Layout!=MonitorCoordinates.Layout(Screen.AllScreens))
-                {await Reply(c.Response,409,new{error="Os monitores mudaram. Aguarde a próxima imagem antes de clicar."});return;}
+                if((input.Kind is "move" or "down" or "up")&&input.Layout!=""&&input.Layout!=MonitorCoordinates.Layout(Screen.AllScreens))
+                {Native.ReleaseInput();heldKeys.Clear();heldMouse.Clear();await Reply(c.Response,409,new{error="Os monitores mudaram. Aguarde a próxima imagem antes de clicar."});return;}
                 Native.Apply(input);
                 if(input.Kind=="keyDown")heldKeys.Add(input.Key);if(input.Kind=="keyUp")heldKeys.Remove(input.Key);
                 if(input.Kind=="down")heldMouse.Add(input.Key);if(input.Kind=="up")heldMouse.Remove(input.Key);

@@ -306,7 +306,11 @@ sealed class Technician:Form
     {
         if(client?.Session is null)return;
         command=command with{Layout=frameLayout};
-        await operations.WaitAsync();try{if(client?.Session is not null){using var r=await client.Request(HttpMethod.Post,"/input",command);}}finally{operations.Release();}
+        await operations.WaitAsync();
+        try{if(client?.Session is not null){using var r=await client.Request(HttpMethod.Post,"/input",command);}}
+        catch(HttpRequestException e)when(e.StatusCode==System.Net.HttpStatusCode.Conflict&&e.Message.Contains("monitores",StringComparison.OrdinalIgnoreCase))
+        {held.Clear();status.Text="Monitores alterados. Aguarde a imagem atualizada e repita o comando.";await Frame();}
+        finally{operations.Release();}
     }
     static bool HasCapability(JsonDocument info,string name)=>info.RootElement.TryGetProperty("capabilities",out var capabilities)
         &&capabilities.ValueKind==JsonValueKind.Array&&capabilities.EnumerateArray().Any(c=>c.GetString()==name);
