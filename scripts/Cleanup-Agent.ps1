@@ -5,3 +5,5 @@ if (Test-Path -LiteralPath "$PSScriptRoot\Uninstall-Agent.ps1") {
 }
 
 Get-NetFirewallRule -Name SDE-Suporte-Console-7445 -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+
+Unregister-ScheduledTask -TaskName SDE-Suporte-Atualizacao -Confirm:$false -ErrorAction SilentlyContinue

@@ -9,6 +9,7 @@ sealed class Agent:Form
     readonly RequestVerifier verifier;
     readonly HttpListener listener=new();
     readonly SemaphoreSlim serial=new(1,1);
+    static readonly ImageCodecInfo jpeg=ImageCodecInfo.GetImageEncoders().Single(x=>x.FormatID==ImageFormat.Jpeg.Guid);
     readonly Label status=new(){Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleCenter};
     readonly NotifyIcon tray=new(){Icon=SystemIcons.Information,Visible=true,Text="SDE Suporte — disponível"};
     readonly System.Windows.Forms.Timer clock=new(){Interval=1000};
@@ -83,6 +84,7 @@ sealed class Agent:Form
     async Task Handle(HttpListenerContext c)
     {
         if(!await serial.WaitAsync(0)){try{await Reply(c.Response,429,new{error="Agente ocupado. Tente novamente."});}catch{}finally{c.Response.Close();}return;}
+        bool locked=true;
         string user="não autenticado";
         try
         {
@@ -98,7 +100,7 @@ sealed class Agent:Form
             var tech=verifier.Verify(H("X-Technician"),H("X-Device"),c.Request.HttpMethod,c.Request.RawUrl??"/",body,H("X-Session"),H("X-Time"),H("X-Nonce"),H("X-Signature"),H("X-Team-Credential"));
             if(tech is null){await Reply(c.Response,403,new{error="Técnico não autorizado. Verifique o código da equipe no console."});return;}
             user=tech.Name;var path=c.Request.Url!.AbsolutePath;var method=c.Request.HttpMethod;
-            if(path=="/info" && method=="GET") {await Reply(c.Response,200,new{config.Device.Id,config.Device.Name,config.Device.Sector,version="0.8.0",capabilities=new[]{"chat","announcements"},available=!unavailable&&Native.DesktopAvailable()});return;}
+            if(path=="/info" && method=="GET") {await Reply(c.Response,200,new{config.Device.Id,config.Device.Name,config.Device.Sector,version="0.9.0",capabilities=new[]{"chat","announcements"},available=!unavailable&&Native.DesktopAvailable()});return;}
             if(path=="/announcement"&&method=="POST")
             {
                 var notice=JsonSerializer.Deserialize<AnnouncementRequest>(body,Json.Options);
@@ -161,9 +163,11 @@ sealed class Agent:Form
                 using var bmp=new Bitmap(bounds.Width,bounds.Height);using var graphics=Graphics.FromImage(bmp);
                 graphics.CopyFromScreen(bounds.Location,Point.Empty,bounds.Size);
                 using var data=new MemoryStream();
-                var encoder=ImageCodecInfo.GetImageEncoders().Single(x=>x.FormatID==ImageFormat.Jpeg.Guid);
+                var encoder=jpeg;
                 using var parameters=new EncoderParameters(1);parameters.Param[0]=new EncoderParameter(System.Drawing.Imaging.Encoder.Quality,60L);
-                bmp.Save(data,encoder,parameters);c.Response.ContentType="image/jpeg";c.Response.Headers["Cache-Control"]="no-store";
+                // Release authenticated state serialization before encoding and network transfer.
+                serial.Release();locked=false;
+                await Task.Run(()=>bmp.Save(data,encoder,parameters));c.Response.ContentType="image/jpeg";c.Response.Headers["Cache-Control"]="no-store";
                 c.Response.ContentLength64=data.Length;await c.Response.OutputStream.WriteAsync(data.ToArray());return;
             }
             if(path=="/input"&&method=="POST")
@@ -178,7 +182,7 @@ sealed class Agent:Form
             await Reply(c.Response,404,new{error="Operação inexistente."});
         }
         catch(Exception e){try{Audit("error",user,e.GetType().Name);await Reply(c.Response,500,new{error=e.Message});}catch{}}
-        finally{c.Response.Close();serial.Release();}
+        finally{c.Response.Close();if(locked)serial.Release();}
     }
 }
 sealed class Consent:Form

@@ -57,3 +57,10 @@ O arquivo **Técnico-Base**, disponível no repositório público, é um modelo 
 A descoberta funciona sem agente, mas a instalação sem agente **exige o gerenciamento remoto do Windows previamente autorizado**. Esta função não habilita WinRM por conta própria, não reduz UAC, não pula validação de certificados nem usa credenciais sem autorização. Nas redes sem WinRM, a TI precisa preparar o gerenciamento, distribuir via GPO/ferramenta de gestão ou instalar o primeiro Cliente localmente.
 
 O relatório de cada lote fica em `%LOCALAPPDATA%\SdeSuporte\deployments`. Não guarda senhas. O teste Windows valida descoberta sem agente, integridade e execução do instalador administrativo; autenticação WinRM e políticas reais da empresa dependem do ambiente e precisam de um piloto.
+
+
+## Versão 0.9.0
+Avisos globais exibem somente Aviso da TI. O nome do técnico continua no atendimento remoto e no registro de auditoria. Interface renovada e captura com envio independente dos comandos de entrada.
+
+### Atualizações automáticas
+Após instalar esta versão uma vez, uma tarefa Windows (SYSTEM) consulta o pacote oficial do GitHub a cada 24 horas e verifica a integridade SHA256 antes de instalar. A verificação da instalação pendente acontece a cada hora e ao iniciar o Windows. As duas aplicações precisam estar fechadas; o agente normalmente fecha ao sair do Windows. Não interrompe atendimentos. A instalação mantém a identidade da máquina e a autorização do técnico. Exige acesso HTTPS ao GitHub e seus servidores de arquivos; sem internet, o aplicativo continua funcionando na rede local e tenta atualizar depois. O manifesto e os hashes são obtidos do repositório oficial por HTTPS; os executáveis ainda não têm assinatura Authenticode. Logs: pasta UpdateCache ao lado de Agent/Technician.

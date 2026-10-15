@@ -24,7 +24,7 @@ sealed class Technician:Form
     readonly TextBox search=new(){Dock=DockStyle.Top,PlaceholderText="Pesquisar computador, setor ou IP"};
     readonly TextBox text=new(){Width=220,PlaceholderText="Texto para digitar no computador"};
     readonly Button connect=new(){Text="Conectar",AutoSize=true};
-    readonly System.Windows.Forms.Timer timer=new(){Interval=350};
+    readonly System.Windows.Forms.Timer timer=new(){Interval=100};
     readonly SemaphoreSlim operations=new(1,1);
     readonly TechnicianIdentity identity;
     ConsoleDiscovery? discovery;
@@ -47,10 +47,10 @@ sealed class Technician:Form
     {
         Directory.CreateDirectory(folder);identity=LoadIdentity();LoadTeamCredential();
         Text=$"SDE Suporte — {identity.Public.Name}";Width=1360;Height=850;MinimumSize=new(900,560);
-        Font=new Font("Segoe UI",10);BackColor=Color.White;KeyPreview=false;
+        Font=new Font("Segoe UI",10);BackColor=Color.White;DoubleBuffered=true;KeyPreview=false;
         var sidebar=new Panel{Dock=DockStyle.Left,Width=330,Padding=new Padding(8)};
         sidebar.Controls.Add(list);sidebar.Controls.Add(search);sidebar.Controls.Add(scanStatus);
-        var toolbar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=95,Padding=new Padding(6),AutoScroll=true};
+        var toolbar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=132,Padding=new Padding(10),AutoScroll=true};
         Button Add(string label,Func<Task> action){var b=new Button{Text=label,AutoSize=true};b.Click+=async(_,_)=>await Safe(action);toolbar.Controls.Add(b);return b;}
         Add("Atualizar máquinas",async()=>{if(discovery is not null)await discovery.Search();await ScanLocal();});
         Add("Varredura de IP",ChooseScan);
@@ -69,13 +69,17 @@ sealed class Technician:Form
         remotePage.Controls.Add(screen);chatPage.Controls.Add(chatPanel);
         var deploymentPage=new TabPage("Implantar Clientes");deploymentPage.Controls.Add(new DeploymentPanel());
         tabs.TabPages.AddRange([remotePage,chatPage,noticesPage,deploymentPage]);
-        var noticeHeader=new Label{Dock=DockStyle.Top,Height=65,Text="Envie um aviso de texto a todos os clientes online da lista, inclusive fora do filtro.\nO funcionário verá o aviso com o nome do técnico. Entrega não significa leitura.",Padding=new Padding(8)};
+        var noticeHeader=new Label{Dock=DockStyle.Top,Height=65,Text="Envie um aviso de texto a todos os clientes online da lista, inclusive fora do filtro.\nO funcionário verá apenas “Aviso da TI”, sem o nome do remetente. Entrega não significa leitura.",Padding=new Padding(8)};
         noticesPage.Padding=new Padding(12);noticesPage.Controls.Add(noticeResults);noticesPage.Controls.Add(sendNotice);noticesPage.Controls.Add(noticeText);noticesPage.Controls.Add(noticeHeader);
         sendNotice.Click+=async(_,_)=>await Safe(Broadcast);
         chatPanel.SetAvailable(false);chatPanel.SetTitle("Conecte a uma máquina para conversar com o funcionário.");
         chatPanel.Send=SendChat;
         chatClock.Tick+=async(_,_)=>{if(pollingChat||client?.Session is null||!chatAvailable)return;pollingChat=true;try{await PollChat();}catch(Exception e){if(!closing)chatPanel.SetTitle("Chat indisponível: "+e.Message);}finally{pollingChat=false;}};
         Controls.Add(tabs);Controls.Add(sidebar);Controls.Add(toolbar);Controls.Add(status);
+        Premium.Apply(this);connect.BackColor=Color.FromArgb(45,105,230);connect.ForeColor=Color.White;
+        status.Padding=new Padding(12,5,0,0);status.BackColor=Color.FromArgb(226,233,244);
+        list.BorderStyle=BorderStyle.None;search.Margin=new Padding(8);
+        var brand=new Label{Text="SDE  /  SUPORTE\nCentral de atendimento",Dock=DockStyle.Top,Height=70,Padding=new Padding(10),Font=new Font("Segoe UI Semibold",13),ForeColor=Color.White,BackColor=Color.FromArgb(18,30,50)};sidebar.Controls.Add(brand);
         search.TextChanged+=(_,_)=>Filter(search.Text);
         if(File.Exists(Path.Combine(folder,"computers.json")))devices.AddRange(Json.Read<Device[]>(Path.Combine(folder,"computers.json")));
         if(File.Exists(Path.Combine(folder,"authorities.json")))authorities.AddRange(Json.Read<TechnicianKey[]>(Path.Combine(folder,"authorities.json")));
@@ -176,6 +180,7 @@ sealed class Technician:Form
     }
     async void Discovered(Device d)
     {
+        if(client?.Session is not null&&list.SelectedItem is Device active&&active.Id==d.Id)return;
         if(checking.Contains(d.Id)||probed.TryGetValue(d.Id,out var last)&&DateTimeOffset.UtcNow-last<TimeSpan.FromSeconds(7))return;
         probed[d.Id]=DateTimeOffset.UtcNow;checking.Add(d.Id);await probes.WaitAsync();
         try
@@ -235,9 +240,8 @@ sealed class Technician:Form
         try
         {
             await Disconnect();if(list.SelectedItem is not Device d)throw new Exception("Selecione um computador na lista. Use Varredura de IP se ele ainda não apareceu.");
-            client=new(d,identity);await client.Start();online[d.Id]=DateTimeOffset.UtcNow;list.Invalidate();status.Text=$"ATENDIMENTO: {d.Name} • {d.Sector} | Técnico: {identity.Public.Name}";
-            using(var response=await client.Request(HttpMethod.Get,"/info"))
-            using(var info=JsonDocument.Parse(await response.Content.ReadAsStringAsync()))chatAvailable=HasCapability(info,"chat");
+            client=new(d,identity,TimeSpan.FromSeconds(8));await client.Start();online[d.Id]=DateTimeOffset.UtcNow;list.Invalidate();status.Text=$"ATENDIMENTO: {d.Name} • {d.Sector} | Técnico: {identity.Public.Name}";
+            chatAvailable=true; // Supported by all currently distributed clients; first image takes priority.
             chatCursor=0;chatPanel.ClearHistory();chatPanel.SetAvailable(chatAvailable);
             chatPanel.SetTitle(chatAvailable?$"Conversa com {d.Name} • Técnico: {identity.Public.Name}":"Atualize o Cliente para usar o chat.");
             tabs.SelectedTab=remotePage;await Frame();timer.Start();chatClock.Start();
@@ -247,15 +251,16 @@ sealed class Technician:Form
     async Task Disconnect()
     {
         timer.Stop();chatClock.Stop();ExitFullScreen();await operations.WaitAsync();
-        try{if(client is not null){try{await client.Stop();}finally{client.Dispose();client=null;}}}
+        try{if(client is not null){try{await client.Stop().WaitAsync(TimeSpan.FromSeconds(2));}finally{client.Dispose();client=null;}}}
         finally{operations.Release();held.Clear();var old=screen.Image;screen.Image=null;old?.Dispose();status.Text="Atendimento encerrado.";chatAvailable=false;chatPanel.SetAvailable(false);chatPanel.SetTitle("Atendimento encerrado. Conecte novamente para conversar.");}
     }
     async Task Frame()
     {
-        if(client?.Session is null||!await operations.WaitAsync(0))return;
-        loading=true;
-        try{using var r=await client.Request(HttpMethod.Get,"/frame");using var stream=await r.Content.ReadAsStreamAsync();using var image=Image.FromStream(stream);var old=screen.Image;screen.Image=new Bitmap(image);old?.Dispose();}
-        finally{loading=false;operations.Release();}
+        if(client?.Session is null||loading)return;
+        var active=client;loading=true;
+        try{using var r=await active.Request(HttpMethod.Get,"/frame");using var stream=await r.Content.ReadAsStreamAsync();using var image=Image.FromStream(stream);var old=screen.Image;if(ReferenceEquals(client,active)&&active.Session is not null){screen.Image=new Bitmap(image);old?.Dispose();}}
+        catch(Exception)when(!ReferenceEquals(client,active)||active.Session is null){}
+        finally{loading=false;}
     }
     async Task Input(InputCommand command)
     {
@@ -305,7 +310,7 @@ sealed class Technician:Form
         string value=MessageHistory.Validate(noticeText.Text);
         var recipients=devices.Where(d=>online.TryGetValue(d.Id,out var seen)&&DateTimeOffset.UtcNow-seen<TimeSpan.FromSeconds(45)).ToArray();
         if(recipients.Length==0)throw new InvalidOperationException("Nenhum Cliente online na lista. Instale o Cliente nos funcionários e atualize as máquinas.");
-        if(MessageBox.Show(this,$"Enviar este aviso para {recipients.Length} computador(es) online?\n\n{value}\n\nRemetente: {identity.Public.Name}","Confirmar aviso global",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
+        if(MessageBox.Show(this,$"Enviar este aviso para {recipients.Length} computador(es) online?\n\n{value}\n\nIdentificação exibida: Aviso da TI","Confirmar aviso global",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
         sendNotice.Enabled=false;noticeText.ReadOnly=true;noticeResults.Items.Clear();
         var message=new AnnouncementRequest(Guid.NewGuid().ToString(),value);
         int delivered=0;using var limit=new SemaphoreSlim(8,8);

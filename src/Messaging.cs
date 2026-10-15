@@ -38,6 +38,7 @@ public sealed class MessagePanel:UserControl
         var composer=new Panel{Dock=DockStyle.Bottom,Height=80,Padding=new Padding(6)};
         composer.Controls.Add(input);composer.Controls.Add(send);
         Controls.Add(history);Controls.Add(composer);Controls.Add(heading);
+        Premium.Apply(this);
         send.Click+=async(_,_)=>{
             if(Send is null)return;
             try{string value=MessageHistory.Validate(input.Text);send.Enabled=false;input.ReadOnly=true;await Send(value);input.Clear();}
@@ -78,13 +79,13 @@ sealed class EmployeeAnnouncements:Form
     {
         Text="SDE Suporte — avisos da TI";Size=new(620,430);MinimumSize=new(380,250);TopMost=true;
         StartPosition=FormStartPosition.CenterScreen;Controls.Add(history);
-        var close=new Button{Dock=DockStyle.Bottom,Height=40,Text="Fechar"};close.Click+=(_,_)=>Hide();Controls.Add(close);
+        var close=new Button{Dock=DockStyle.Bottom,Height=40,Text="Fechar"};close.Click+=(_,_)=>Hide();Controls.Add(close);Premium.Apply(this);
         FormClosing+=(_,e)=>{if(e.CloseReason==CloseReason.UserClosing){e.Cancel=true;Hide();}};
     }
     public void Receive(SupportMessage message)
     {
         if(history.TextLength>100000)history.Clear();
-        history.AppendText($"AVISO DA TI • {message.At.ToLocalTime():dd/MM HH:mm}\nEnviado por: {message.Sender}\n\n{message.Text}\n\n────────────\n\n");
+        history.AppendText($"AVISO DA TI • {message.At.ToLocalTime():dd/MM HH:mm}\n\n{message.Text}\n\n────────────\n\n");
         history.SelectionStart=history.TextLength;history.ScrollToCaret();Show();Activate();
     }
 }
@@ -99,6 +100,6 @@ sealed class FullScreenWindow:Form
         var back=new Button{AutoSize=true,Text="Sair da tela cheia (F11)"};back.Click+=(_,_)=>exit();
         var messages=new Button{AutoSize=true,Text="Chat"};messages.Click+=(_,_)=>chat();
         var end=new Button{AutoSize=true,Text="Encerrar atendimento"};end.Click+=async(_,_)=>await disconnect();
-        bar.Controls.AddRange([back,messages,end]);Controls.Add(screen);Controls.Add(bar);
+        bar.Controls.AddRange([back,messages,end]);Controls.Add(screen);Controls.Add(bar);Premium.Apply(bar);
     }
 }

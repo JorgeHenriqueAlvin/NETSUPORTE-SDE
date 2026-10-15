@@ -31,6 +31,9 @@ jobs:
       - name: Compilar aplicativos Windows
         shell: pwsh
         run: ./scripts/Build.ps1
+      - name: Validar atualizador e rejeicao de pacote adulterado
+        shell: pwsh
+        run: ./tests/Test-Updater.ps1
       - name: Preparar pacote de teste e compatibilidade
         shell: pwsh
         run: ./scripts/Build-Template.ps1
@@ -71,6 +74,7 @@ jobs:
           $target = Join-Path $env:RUNNER_TEMP 'SDE-Suporte-Teste'
           $process = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$target") -PassThru -Wait
           if ($process.ExitCode -ne 0) { throw "Instalacao falhou: $($process.ExitCode)" }
+          if (-not (Get-ScheduledTask -TaskName SDE-Suporte-Atualizacao -ErrorAction SilentlyContinue)) { throw 'Atualizacao automatica nao registrada.' }
           if (-not (Test-Path "$target\Technician\SDE-Suporte-Tecnico.exe")) { throw 'Console nao instalado.' }
           if (Test-Path "$target\Agent\SDE-Suporte-Cliente.exe") { throw 'Versao Tecnico instalou agente indevidamente.' }
           if (-not (Test-Path "$target\Packages\SDE-Suporte-Cliente-Instalar.exe")) { throw 'Pacote para implantacao remota ausente.' }
@@ -137,7 +141,7 @@ jobs:
           }
       - uses: actions/upload-artifact@v4
         with:
-          name: SDE-Suporte-Instaladores-0.8.0
+          name: SDE-Suporte-Instaladores-0.9.0
           if-no-files-found: error
           path: |
             release/*.exe

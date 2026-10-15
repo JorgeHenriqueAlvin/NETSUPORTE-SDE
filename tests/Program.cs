@@ -78,6 +78,7 @@ static class Tests
                 var composer=chat.Controls.OfType<Panel>().Single();composer.Controls.OfType<TextBox>().Single().Text="Resposta do funcionário";
                 composer.Controls.OfType<Button>().Single().PerformClick();Application.DoEvents();
                 Check(sent=="Resposta do funcionário","interface permite resposta do funcionario sem console tecnico");
+                using(var notice=new EmployeeAnnouncements()){notice.Receive(new(0,"NOME PRIVADO DO TECNICO","Aviso de teste",DateTimeOffset.UtcNow));var rendered=notice.Controls.OfType<RichTextBox>().Single().Text;Check(rendered.Contains("AVISO DA TI")&&rendered.Contains("Aviso de teste")&&!rendered.Contains("NOME PRIVADO"),"aviso global nao exibe nome do tecnico");}
                 owner.Close();
             }catch(Exception e){error=e;}
         });thread.SetApartmentState(ApartmentState.STA);thread.Start();thread.Join();if(error is not null)throw error;

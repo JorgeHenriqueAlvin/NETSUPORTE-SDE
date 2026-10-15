@@ -1,4 +1,4 @@
-#define AppVersion "0.8.0"
+#define AppVersion "0.9.0"
 #ifndef SetupRole
   #define SetupRole "combined"
 #endif
@@ -63,6 +63,7 @@ Source: "..\scripts\Uninstall-Agent.ps1"; DestDir: "{app}\scripts"{#ClientCompon
 Source: "..\scripts\AutoConfigure-Agent.ps1"; DestDir: "{app}\scripts"{#ClientComponent}
 Source: "..\src\TeamDeployment.json"; DestDir: "{app}\scripts"; DestName: "team-deployment.json"{#ClientComponent}
 #endif
+Source: "..\scripts\Update-Sde.ps1"; DestDir: "{app}\scripts"
 Source: "..\scripts\Cleanup-Agent.ps1"; DestDir: "{app}\scripts"
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\QUICKSTART.md"; DestDir: "{app}"; Flags: ignoreversion
@@ -85,6 +86,7 @@ Type: files; Name: "{app}\scripts\computer.sdehost"
 Type: files; Name: "{app}\scripts\*.sdetech"
 Type: files; Name: "{app}\scripts\agent-setup.log"
 Type: filesandordirs; Name: "{app}\ClientTools"
+Type: filesandordirs; Name: "{app}\UpdateCache"
 
 [Code]
 var
@@ -139,6 +141,7 @@ begin
     Exit;
   end;
   if CurStep <> ssPostInstall then Exit;
+  RunConfiguration(ExpandConstant('-File "{app}\scripts\Update-Sde.ps1" -Register'));
 #if SetupRole == "technician"
   RunConfiguration(ExpandConstant('-File "{app}\scripts\Initialize-Console.ps1"'));
 #elif SetupRole == "combined"
