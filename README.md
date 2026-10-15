@@ -121,3 +121,7 @@ O arquivo `.github/workflows/windows-build.yml` compila os dois aplicativos em W
 ## Próxima etapa de engenharia
 
 O serviço Windows e a comunicação segura com o componente da sessão interativa ainda NÃO estão implementados. Esta versão trabalha somente com funcionário conectado e área de trabalho desbloqueada. O código não deve ser apresentado como equivalente completo ao NetSupport. Não realiza administração da tela de login, UAC ou desktop seguro. A criação do instalador final depende de compilação e homologação Windows, implantação de certificados da empresa e definição dos grupos de domínio.
+
+## Instalador Windows
+
+O GitHub Actions gera `SDE-Suporte-Instalador-Windows-x64.exe`. Execute como administrador e escolha Console do técnico ou Agente do cliente. Na instalação do agente, marque a configuração ao concluir. Ela detecta o FQDN em SICM.INTRANET e solicita setor, contas autorizadas, certificado existente e sub-redes dos técnicos. A conta sugerida é SICM\jorge.alvin. Não cria certificado nem altera o domínio. Sem concluir a configuração, o agente não estará operacional. O console exige edição de `machines.json` na pasta Technician com os nomes reais. A instalação não demonstra homologação do acesso remoto. Instalador sem assinatura Authenticode.

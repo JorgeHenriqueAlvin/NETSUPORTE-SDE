@@ -6,6 +6,7 @@ on:
       - 'src/**'
       - 'scripts/**'
       - '.github/workflows/windows-build.yml'
+      - 'installer/**'
 permissions:
   contents: read
 jobs:
@@ -16,6 +17,15 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+      - name: Validar sintaxe dos scripts PowerShell
+        shell: pwsh
+        run: |
+          Get-ChildItem scripts/*.ps1 | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$tokens,[ref]$errors) | Out-Null
+            if ($errors.Count) { throw ($errors | Out-String) }
+          }
       - name: Compilar os dois aplicativos
         shell: pwsh
         run: ./scripts/Build.ps1
@@ -27,11 +37,22 @@ jobs:
             $bytes = [IO.File]::ReadAllBytes((Resolve-Path $file))
             if ($bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a) { throw "PE inválido: $file" }
           }
+      - name: Gerar instalador Windows
+        shell: pwsh
+        run: |
+          $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $compiler)) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Falha ao instalar Inno Setup.' }
+          }
+          & $compiler installer/SDE-Suporte.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Falha ao gerar instalador.' }
       - uses: actions/upload-artifact@v4
         with:
           name: SDE-Suporte-Windows-x64
           if-no-files-found: error
           path: |
+            release/*.exe
             dist/
             scripts/Install-Agent.ps1
             scripts/Uninstall-Agent.ps1
