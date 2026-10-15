@@ -1,4 +1,4 @@
-# SDE Suporte 0.7.0 — tela cheia, chat e avisos globais
+# SDE Suporte 0.8.0 — descoberta sem agente e implantação remota
 
 Suporte remoto interno com dois instaladores: **Técnico** e **Cliente**. Não exige Active Directory, domínio, servidor externo ou exportação de identificações entre computadores.
 
@@ -65,8 +65,9 @@ Em Windows x64 com .NET SDK 10 e Inno Setup 6:
 ./scripts/Build.ps1
 ./scripts/Build-Template.ps1
 ./scripts/Test-Windows.ps1
-& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DSetupRole=technician installer/SDE-Suporte.iss
 & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DSetupRole=client installer/SDE-Suporte.iss
+(Get-FileHash release/SDE-Suporte-Cliente-Instalar.exe).Hash | Set-Content release/SDE-Suporte-Cliente-Instalar.exe.sha256
+& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DSetupRole=technician installer/SDE-Suporte.iss
 ```
 
 O workflow Windows compila aplicativos autocontidos, verifica assinaturas e rejeição de acessos indevidos, usa captura e entrada reais, encontra o agente por UDP e IP e conecta seis identidades novas ao mesmo cliente sem reinstalá-lo. Também testa instalação/remoção dos dois EXEs e atualização de um cliente em execução, preservando sua identidade. As credenciais dos testes são descartáveis e não entram no artefato publicado.
@@ -80,3 +81,13 @@ Os testes verificam o instalador personalizado no Windows, a autorização autom
 Chat e avisos usam o mesmo HTTPS com pinagem e assinatura de cada requisição. `POST /announcement` aceita apenas técnico autorizado, sem iniciar sessão de controle, com identificador idempotente, limite de três segundos entre novos avisos por técnico e um único painel de avisos reutilizado. A confirmação é de recebimento pelo agente, não de leitura pelo funcionário. `GET/POST /chat` exige a sessão ativa vinculada ao técnico e ao dispositivo. Os nomes são obtidos da credencial verificada e do usuário Windows, nunca de um campo remetente enviado livremente.
 
 As mensagens são texto simples de até 2.000 caracteres; o chat mantém até 200 mensagens em memória por atendimento e é limpo ao encerrar. O funcionário só pode responder durante o atendimento. O agente registra eventos de envio/recebimento no log, sem guardar o conteúdo do chat no arquivo de auditoria. Os avisos podem chegar a um agente em sessão bloqueada e ficar visíveis após desbloquear; isso não autoriza captura ou entrada na tela bloqueada.
+
+## Implantação administrativa sem agente prévio
+
+A aba **Implantar Clientes** separa inventário de rede e suporte remoto. Descobre hosts acessíveis usando ICMP e abertura TCP limitada a 445/5985/5986/7443, com 32 IPs simultâneos, até 65.536 endereços privados e cancelamento. Nomes sugeridos por DNS reverso são conferidos por resolução direta. Nenhuma credencial é usada na descoberta, e uma porta aberta não confirma o sistema operacional.
+
+O técnico seleciona destinos e confirma o lote antes da instalação. O instalador Técnico contém uma cópia do instalador Cliente e seu SHA256, mantidos em Program Files. `Deploy-Agent.ps1` pede uma credencial administrativa localmente, mantém apenas o PSCredential em memória e abre sessões WinRM: HTTPS com validação normal do certificado, ou Kerberos para nomes do domínio. Não há fallback para Basic/CredSSP, `TrustedHosts`, desativação de certificados ou alteração de políticas UAC. O nome DNS precisa corresponder ao IP privado selecionado.
+
+Após verificar a permissão administrativa remota, a cópia é feita por `Copy-Item -ToSession` para uma pasta temporária restrita a administradores/SYSTEM, sem compartilhar a senha ou depender de acesso SMB duplo. O payload `Install-RemoteAgent.ps1` confere novamente o hash, executa apenas o instalador Cliente incluído, valida o cadastro e a entrada de início automático e tenta iniciar na conta interativa existente usando uma tarefa agendada visível, sem senha de funcionário. Sem sessão interativa, aguarda login; nunca lança a GUI na sessão do WinRM. A desinstalação remove a tarefa pertencente ao agente.
+
+O lote é sequencial, admite até 512 destinos e salva resultado por máquina, sem credenciais. O programa não configura previamente WinRM, certificados ou autorização remota do Windows. Não garante detectar hosts que bloqueiam todos os testes e não oferece instalação sem uma credencial administrativa válida. Os testes CI exercitam a descoberta sem agente, recusa de hash errado e o payload de instalação/removação no Windows. A autenticação WinRM na infraestrutura da empresa não foi testada; realize um piloto com máquinas autorizadas e gerenciamento preparado.

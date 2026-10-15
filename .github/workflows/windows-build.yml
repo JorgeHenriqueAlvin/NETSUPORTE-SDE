@@ -52,9 +52,13 @@ jobs:
             choco install innosetup --yes --no-progress
             if ($LASTEXITCODE -ne 0) { throw 'Falha ao instalar Inno Setup.' }
           }
-          foreach ($role in @('technician','client')) {
+          foreach ($role in @('client','technician')) {
             & $compiler "/DSetupRole=$role" installer/SDE-Suporte.iss
             if ($LASTEXITCODE -ne 0) { throw "Falha ao gerar instalador $role." }
+            if ($role -eq 'client') {
+              $hash = (Get-FileHash release/SDE-Suporte-Cliente-Instalar.exe -Algorithm SHA256).Hash
+              [IO.File]::WriteAllText((Join-Path $PWD 'release/SDE-Suporte-Cliente-Instalar.exe.sha256'),$hash)
+            }
           }
       - name: Testar instalacao e remocao da versao Tecnico
         shell: pwsh
@@ -69,6 +73,9 @@ jobs:
           if ($process.ExitCode -ne 0) { throw "Instalacao falhou: $($process.ExitCode)" }
           if (-not (Test-Path "$target\Technician\SDE-Suporte-Tecnico.exe")) { throw 'Console nao instalado.' }
           if (Test-Path "$target\Agent\SDE-Suporte-Cliente.exe") { throw 'Versao Tecnico instalou agente indevidamente.' }
+          if (-not (Test-Path "$target\Packages\SDE-Suporte-Cliente-Instalar.exe")) { throw 'Pacote para implantacao remota ausente.' }
+          $expected = (Get-Content "$target\Packages\SDE-Suporte-Cliente-Instalar.exe.sha256" -Raw).Trim()
+          if ((Get-FileHash "$target\Packages\SDE-Suporte-Cliente-Instalar.exe" -Algorithm SHA256).Hash -ne $expected) { throw 'Pacote remoto nao corresponde ao hash.' }
           $uninstall = Start-Process "$target\unins000.exe" -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
           if ($uninstall.ExitCode -ne 0) { throw "Desinstalacao falhou: $($uninstall.ExitCode)" }
           if (Test-Path "$target\Technician\SDE-Suporte-Tecnico.exe") { throw 'Console nao removido.' }
@@ -110,9 +117,27 @@ jobs:
           }
           if (Test-Path "$target\Agent\agent.json") { throw 'Configuracao do cliente nao removida.' }
           if (Get-NetFirewallRule -Name SDE-Suporte-LAN-7443 -ErrorAction SilentlyContinue) { throw 'Regra do agente nao removida.' }
+      - name: Validar instalacao administrativa usada pela implantacao remota
+        shell: pwsh
+        run: |
+          $installer = (Resolve-Path release/SDE-Suporte-Cliente-Instalar.exe).Path
+          $expected = (Get-FileHash $installer -Algorithm SHA256).Hash
+          $target = Join-Path $env:RUNNER_TEMP 'SDE-Implantacao-Teste'
+          try {
+            $rejected = $false
+            try { ./scripts/Install-RemoteAgent.ps1 -InstallerPath $installer -ExpectedSha256 ('0' * 64) -InstallDirectory $target } catch { $rejected = $true }
+            if (-not $rejected -or (Test-Path "$target\Agent\agent.json")) { throw 'Pacote adulterado nao foi bloqueado antes de instalar.' }
+            $result = ./scripts/Install-RemoteAgent.ps1 -InstallerPath $installer -ExpectedSha256 $expected -InstallDirectory $target
+            if ($result.State -notlike 'Installed*' -or -not (Test-Path "$target\Agent\agent.json")) { throw 'Instalacao administrativa de implantacao falhou.' }
+          } finally {
+            if (Test-Path "$target\unins000.exe") {
+              $uninstall = Start-Process "$target\unins000.exe" -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
+              if ($uninstall.ExitCode -ne 0) { throw 'Desinstalacao da implantacao falhou.' }
+            }
+          }
       - uses: actions/upload-artifact@v4
         with:
-          name: SDE-Suporte-Instaladores-0.7.0
+          name: SDE-Suporte-Instaladores-0.8.0
           if-no-files-found: error
           path: |
             release/*.exe

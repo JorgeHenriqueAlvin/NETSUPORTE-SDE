@@ -67,7 +67,8 @@ sealed class Technician:Form
         toolbar.Controls.Add(text);Add("Enviar texto",async()=>{await Input(new("text",Text:text.Text));text.Clear();});
         toolbar.Controls.Add(autoFullScreen);Add("Tela cheia (F11)",()=>{ToggleFullScreen();return Task.CompletedTask;});
         remotePage.Controls.Add(screen);chatPage.Controls.Add(chatPanel);
-        tabs.TabPages.AddRange([remotePage,chatPage,noticesPage]);
+        var deploymentPage=new TabPage("Implantar Clientes");deploymentPage.Controls.Add(new DeploymentPanel());
+        tabs.TabPages.AddRange([remotePage,chatPage,noticesPage,deploymentPage]);
         var noticeHeader=new Label{Dock=DockStyle.Top,Height=65,Text="Envie um aviso de texto a todos os clientes online da lista, inclusive fora do filtro.\nO funcionário verá o aviso com o nome do técnico. Entrega não significa leitura.",Padding=new Padding(8)};
         noticesPage.Padding=new Padding(12);noticesPage.Controls.Add(noticeResults);noticesPage.Controls.Add(sendNotice);noticesPage.Controls.Add(noticeText);noticesPage.Controls.Add(noticeHeader);
         sendNotice.Click+=async(_,_)=>await Safe(Broadcast);

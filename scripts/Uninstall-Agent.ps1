@@ -11,6 +11,9 @@ $config=Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
 if (-not $config.device.port) { return }
 $port=[int]$config.device.port
 $exe=Join-Path $InstallDirectory 'SDE-Suporte-Cliente.exe'
+$task=Get-ScheduledTask -TaskName 'SDE-Suporte-Cliente-InicioRemoto' -ErrorAction SilentlyContinue
+if($task -and @($task.Actions | Where-Object Execute -eq $exe).Count -gt 0){Unregister-ScheduledTask -TaskName 'SDE-Suporte-Cliente-InicioRemoto' -Confirm:$false}
+
 Get-CimInstance Win32_Process -Filter "Name='SDE-Suporte-Cliente.exe'" | Where-Object ExecutablePath -eq $exe | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 $binding=(& netsh.exe http show sslcert "ipport=0.0.0.0:$port" | Out-String)
 if ($binding -match 'c43a8ff9-42a4-4de1-9c45-6a49b6c9f27d') {

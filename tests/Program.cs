@@ -28,7 +28,7 @@ static class Tests
                 else Json.Write(Path.Combine(args[1],"deployment.json"),Enrollment.Create(id,[],"Teste"));
                 Json.Write(Path.Combine(args[1],"tecnico.sdetech"),id.Public);File.WriteAllBytes(Path.Combine(args[1],"private-test.pk8"),id.ExportPrivate());return 0;
             }
-            if(args[0]=="protocol") {Protocol();EnrollmentTests();TeamTests();RangeTests();MessagingTests();TechnicianSetupTests();return 0;}
+            if(args[0]=="protocol") {Protocol();EnrollmentTests();TeamTests();RangeTests();MessagingTests();await InventoryTests();TechnicianSetupTests();return 0;}
             if(args[0]=="template"){InstallerPackage.CreateTemplate(args[1],args[2],args[3]);return 0;}
             if(args[0]=="package"){using var creator=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Preparador");InstallerPackage.Personalize(args[1],args[2],Enrollment.Create(creator,[],"Teste"));return 0;}
             if(args[0]=="live-team"){await LiveTeam(args[1],args[2]);return 0;}
@@ -40,6 +40,17 @@ static class Tests
             }
             await Live(args[1],args[2]);return 0;
         }catch(Exception e){Console.Error.WriteLine(e);return 1;}
+    }
+    static async Task InventoryTests()
+    {
+        var listener=new System.Net.Sockets.TcpListener(IPAddress.Loopback,0);listener.Start();int port=((IPEndPoint)listener.LocalEndpoint).Port;
+        Check(await NetworkInventory.Port(IPAddress.Loopback,port,CancellationToken.None),"inventario encontra porta Windows sem protocolo ou agente SDE");
+        listener.Stop();Check(!await NetworkInventory.Port(IPAddress.Loopback,port,CancellationToken.None),"inventario diferencia porta fechada");
+        var host=await NetworkInventory.Probe(IPAddress.Loopback,CancellationToken.None);
+        Check(host?.Address=="127.0.0.1","descoberta encontra maquina acessivel mesmo sem agente instalado");
+        using var cancelled=new CancellationTokenSource();cancelled.Cancel();
+        try{await NetworkInventory.Scan([IPv4Range.Parse("127.0.0.1/32",true)],_=>{},null,cancelled.Token);throw new Exception("inventario ignorou cancelamento");}
+        catch(OperationCanceledException){Console.WriteLine("OK: descoberta sem agente respeita cancelamento");}
     }
     static void MessagingTests()
     {

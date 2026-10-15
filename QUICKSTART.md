@@ -1,4 +1,4 @@
-# SDE Suporte 0.7.0 — instalar e conectar
+# SDE Suporte 0.8.0 — instalar e conectar
 
 ## Nos computadores dos técnicos
 
@@ -42,3 +42,18 @@ Para atendimento, o funcionário deve estar conectado e com o Windows desbloquea
 O arquivo **Técnico-Autorizado** já concede acesso à equipe e deve ser distribuído somente aos técnicos. Ele é entregue por canal privado e não acompanha o instalador dos funcionários.
 
 O arquivo **Técnico-Base**, disponível no repositório público, é um modelo para gerar o instalador autorizado; ele não contém a autorização privada. A versão anterior com código permanece como compatibilidade para instalações antigas.
+
+## Encontrar máquinas sem Cliente e instalar pela rede
+
+1. Atualize o Técnico com o instalador autorizado **0.8.0**. Ele já inclui o instalador Cliente para distribuição remota.
+2. Abra **Implantar Clientes**. A busca começa automaticamente nas redes locais (até /22 por interface). Edite a faixa e clique em **Localizar máquinas** para ampliar.
+3. A lista usa ICMP e portas TCP 445/5985/5986/7443; não exige Cliente instalado. Portas abertas não comprovam Windows e máquinas que bloqueiam todos esses testes podem não aparecer.
+4. Confira IP e nome DNS. A coluna **Nome para autenticar** pode ser corrigida; o nome precisa corresponder ao IP selecionado.
+5. Escolha **HTTPS (sem exigir domínio)** se as máquinas têm WinRM HTTPS com certificado confiável. Onde existir domínio, **Domínio (Kerberos)** usa WinRM e o nome DNS. A conta deve ter acesso administrativo efetivo ao endpoint remoto.
+6. Marque as máquinas e clique em **Instalar Cliente nas selecionadas**. Confira a confirmação, informe a credencial na janela do PowerShell e acompanhe os resultados. Não envie senhas pelo chat.
+7. O pacote é conferido por SHA256 antes e depois da cópia. A instalação é silenciosa, mantém o início automático e tenta iniciar o Cliente na conta já conectada, sem guardar a senha dessa conta.
+8. Se não há usuário conectado ou o início interativo falha, aparece **Instalado; aguardando login**. No próximo login, o Cliente inicia automaticamente. Clique em **Atualizar máquinas** para o agente aparecer na lista de suporte.
+
+A descoberta funciona sem agente, mas a instalação sem agente **exige o gerenciamento remoto do Windows previamente autorizado**. Esta função não habilita WinRM por conta própria, não reduz UAC, não pula validação de certificados nem usa credenciais sem autorização. Nas redes sem WinRM, a TI precisa preparar o gerenciamento, distribuir via GPO/ferramenta de gestão ou instalar o primeiro Cliente localmente.
+
+O relatório de cada lote fica em `%LOCALAPPDATA%\SdeSuporte\deployments`. Não guarda senhas. O teste Windows valida descoberta sem agente, integridade e execução do instalador administrativo; autenticação WinRM e políticas reais da empresa dependem do ambiente e precisam de um piloto.

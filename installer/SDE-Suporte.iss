@@ -1,4 +1,4 @@
-#define AppVersion "0.7.0"
+#define AppVersion "0.8.0"
 #ifndef SetupRole
   #define SetupRole "combined"
 #endif
@@ -51,6 +51,10 @@ Name: "client"; Description: "Agente para receber atendimento"; Types: client fu
 #if SetupRole != "client"
 Source: "..\dist\Technician\*"; DestDir: "{app}\Technician"; Excludes: "agent.sdetemplate"; Flags: ignoreversion recursesubdirs createallsubdirs{#TechnicianComponent}
 Source: "..\scripts\Initialize-Console.ps1"; DestDir: "{app}\scripts"{#TechnicianComponent}
+Source: "..\scripts\Deploy-Agent.ps1"; DestDir: "{app}\scripts"{#TechnicianComponent}
+Source: "..\scripts\Install-RemoteAgent.ps1"; DestDir: "{app}\scripts"{#TechnicianComponent}
+Source: "..\release\SDE-Suporte-Cliente-Instalar.exe"; DestDir: "{app}\Packages"{#TechnicianComponent}
+Source: "..\release\SDE-Suporte-Cliente-Instalar.exe.sha256"; DestDir: "{app}\Packages"{#TechnicianComponent}
 #endif
 #if SetupRole != "technician"
 Source: "..\dist\Agent\*"; DestDir: "{app}\Agent"; Flags: ignoreversion recursesubdirs createallsubdirs{#ClientComponent}
