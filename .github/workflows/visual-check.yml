@@ -1,0 +1,30 @@
+name: Revisar visual do console Windows
+on:
+  push:
+    paths: ['.github/workflows/visual-check.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  visual:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Renderizar o console visivel para revisao
+        shell: pwsh
+        run: |
+          # DrawToBitmap on a hidden Form omits its child controls. Show the
+          # disposable UI fixture only in this interactive visual review job.
+          $path = 'tests/Program.cs'
+          $source = [IO.File]::ReadAllText($path)
+          if (-not $source.Contains('console.CreateControl();')) { throw 'Ponto de captura visual ausente.' }
+          [IO.File]::WriteAllText($path,$source.Replace('console.CreateControl();','console.Show();Application.DoEvents();'))
+          dotnet run --project tests/SdeSuporte.Tests.csproj -c Release -- protocol
+          if ($LASTEXITCODE -ne 0) { throw 'Falha ao renderizar a interface.' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SDE-Console-Visual
+          path: ${{ runner.temp }}/SDE-Visual-QA/*.png
