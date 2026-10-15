@@ -5,7 +5,7 @@ $export=Join-Path $env:TEMP 'SDE-WinRM-Pilot-Test'
 $profiles=Get-NetFirewallProfile | Select-Object Name,Enabled
 try {
  Set-NetFirewallProfile -Profile Domain,Private,Public -Enabled True
- $info=& "$PSScriptRoot\Prepare-Client.ps1" -ClientIPv4 $ip -TechnicianIPv4 $ip -ExportDirectory $export -Port 15986
+ $info=& "$PSScriptRoot\Prepare-Client.ps1" -ClientIPv4 $ip -TechnicianIPv4 $ip -ExportDirectory $export -Port 15986 -Verbose
  $info=$info | Select-Object -Last 1
  if(-not (Test-Path "$export\Cliente-WinRM.cer") -or $info.Sha256.Length -ne 64){throw 'Certificado publico nao exportado.'}
  $certificate=New-Object Security.Cryptography.X509Certificates.X509Certificate2("$export\Cliente-WinRM.cer")
@@ -17,7 +17,7 @@ try {
  if(-not $failed -or (Test-Path "Cert:\LocalMachine\Root\$($certificate.Thumbprint)")){throw 'Certificado com SHA256 errado foi aceito.'}
  & "$PSScriptRoot\Trust-Technician.ps1" -ClientIPv4 $ip -TechnicianIPv4 $ip -CertificatePath "$export\Cliente-WinRM.cer" -Port 15986 -ExpectedSha256 $info.Sha256
  # Rerunning must preserve ownership and avoid creating another certificate/listener.
- $again=& "$PSScriptRoot\Prepare-Client.ps1" -ClientIPv4 $ip -TechnicianIPv4 $ip -ExportDirectory $export -Port 15986
+ $again=& "$PSScriptRoot\Prepare-Client.ps1" -ClientIPv4 $ip -TechnicianIPv4 $ip -ExportDirectory $export -Port 15986 -Verbose
  if(($again | Select-Object -Last 1).Thumbprint -ne $info.Thumbprint){throw 'Reexecucao trocou o certificado.'}
  Write-Host 'OK: SAN de IP, chave privada nao exportada, firewall limitado, SHA incorreto bloqueado e HTTPS WinRM validado.'
 }finally{

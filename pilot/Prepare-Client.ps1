@@ -66,7 +66,7 @@ if(Test-Path -LiteralPath $stateFile){
   New-WSManInstance winrm/config/Listener -SelectorSet @{Transport='HTTPS';Address="IP:$ClientIPv4"} -ValueSet @{Hostname=$env:COMPUTERNAME;CertificateThumbprint=$cert.Thumbprint;Port=$Port} | Out-Null
   $state.ListenerCreated=$true;$state | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $stateFile -Encoding UTF8
   Restart-Service WinRM -Force
- }catch{throw ('Configuracao incompleta: '+$_.Exception.Message+'. Execute a remocao do piloto antes de tentar novamente.')}
+ }catch{throw ('Configuracao incompleta: '+$_.Exception.Message+' | '+$_.InvocationInfo.PositionMessage+'. Execute a remocao do piloto antes de tentar novamente.')}
 }
 $export=Join-Path $ExportDirectory 'Cliente-WinRM.cer'
 Export-Certificate -Cert $cert -FilePath $export -Type CERT -Force | Out-Null
