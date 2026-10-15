@@ -8,6 +8,7 @@ sealed class Technician:Form
     readonly ListBox list=new(){Dock=DockStyle.Fill};
     readonly RemoteScreen screen=new(){Dock=DockStyle.Fill,BackColor=Color.FromArgb(15,27,45),SizeMode=PictureBoxSizeMode.Zoom,TabStop=true};
     readonly Label status=new(){Dock=DockStyle.Bottom,Height=32};
+    readonly TextBox search=new(){Dock=DockStyle.Top,PlaceholderText="Pesquisar computador, setor ou IP"};
     readonly TextBox text=new(){Width=220,PlaceholderText="Texto para digitar no computador"};
     readonly Button connect=new(){Text="Conectar",AutoSize=true};
     readonly System.Windows.Forms.Timer timer=new(){Interval=350};
@@ -31,7 +32,6 @@ sealed class Technician:Form
         Text=$"SDE Suporte — {identity.Public.Name}";Width=1360;Height=850;MinimumSize=new(900,560);
         Font=new Font("Segoe UI",10);BackColor=Color.White;KeyPreview=false;
         var sidebar=new Panel{Dock=DockStyle.Left,Width=330,Padding=new Padding(8)};
-        var search=new TextBox{Dock=DockStyle.Top,PlaceholderText="Pesquisar computador, setor ou IP"};
         sidebar.Controls.Add(list);sidebar.Controls.Add(search);
         var toolbar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=95,Padding=new Padding(6),AutoScroll=true};
         Button Add(string label,Func<Task> action){var b=new Button{Text=label,AutoSize=true};b.Click+=async(_,_)=>await Safe(action);toolbar.Controls.Add(b);return b;}
@@ -122,9 +122,10 @@ sealed class Technician:Form
             if(closing||IsDisposed)return;
             online[d.Id]=DateTimeOffset.UtcNow;
             var existing=devices.FirstOrDefault(x=>x.Id==d.Id);
-            if(existing!=d){devices.RemoveAll(x=>x.Id==d.Id);devices.Add(d);dirty=true;Filter("");}
+            if(existing!=d){devices.RemoveAll(x=>x.Id==d.Id);devices.Add(d);dirty=true;Filter(search.Text);}
             list.Invalidate();
-        }catch{online.Remove(d.Id);if(!IsDisposed)list.Invalidate();}
+        }catch(HttpRequestException e)when(e.StatusCode==System.Net.HttpStatusCode.TooManyRequests){online[d.Id]=DateTimeOffset.UtcNow;if(!IsDisposed)list.Invalidate();}
+        catch{online.Remove(d.Id);if(!IsDisposed)list.Invalidate();}
         finally{checking.Remove(d.Id);probes.Release();}
     }
     void ExportIdentity()
@@ -169,7 +170,7 @@ sealed class Technician:Form
         try
         {
             await Disconnect();if(list.SelectedItem is not Device d)throw new Exception("Importe e selecione um computador.");
-            client=new(d,identity);await client.Start();status.Text=$"ATENDIMENTO: {d.Name} • {d.Sector} | Técnico: {identity.Public.Name}";
+            client=new(d,identity);await client.Start();online[d.Id]=DateTimeOffset.UtcNow;list.Invalidate();status.Text=$"ATENDIMENTO: {d.Name} • {d.Sector} | Técnico: {identity.Public.Name}";
             await Frame();timer.Start();screen.Focus();
         }finally{connect.Enabled=true;}
     }

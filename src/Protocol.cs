@@ -97,6 +97,14 @@ public sealed class RemoteClient : IDisposable
     }
     public async Task<HttpResponseMessage> Request(HttpMethod method,string path,object? value=null)
     {
+        for(int attempt=0;;attempt++)
+        {
+            try{return await RequestOnce(method,path,value);}
+            catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.TooManyRequests&&attempt<3){await Task.Delay(150);}
+        }
+    }
+    async Task<HttpResponseMessage> RequestOnce(HttpMethod method,string path,object? value)
+    {
         byte[] body=value is null ? [] : JsonSerializer.SerializeToUtf8Bytes(value,Json.Options);
         string time=DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
         string nonce=Convert.ToHexString(RandomNumberGenerator.GetBytes(16));

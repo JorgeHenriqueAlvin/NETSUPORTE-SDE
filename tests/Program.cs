@@ -97,6 +97,11 @@ static class Tests
         try
         {
             await client.Start();Check(client.Session?.TechnicianName==metadata.Name,"sessao identifica tecnico aprovado");
+            using(var presenceProbe=new RemoteClient(d,id))
+            {
+                await Task.WhenAll(Enumerable.Range(0,4).Select(async i=>{using var concurrent=await (i==0?client.Request(HttpMethod.Get,"/frame"):presenceProbe.Request(HttpMethod.Get,"/info"));}));
+                Console.WriteLine("OK: verificacao de presenca simultanea nao interrompe captura");
+            }
             using(var frame=await client.Request(HttpMethod.Get,"/frame"))
             {var bytes=await frame.Content.ReadAsByteArrayAsync();Check(bytes.Length>1000&&bytes[0]==0xff&&bytes[1]==0xd8,"captura real da tela produz JPEG");}
             form.Invoke(()=>{form.Activate();textbox.Focus();SetForegroundWindow(form.Handle);});await Task.Delay(500);
