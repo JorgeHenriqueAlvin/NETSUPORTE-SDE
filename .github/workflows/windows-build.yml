@@ -149,3 +149,8 @@ jobs:
             QUICKSTART.md
 
 
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SDE-Visual-QA
+          path: ${{ runner.temp }}/SDE-Visual-QA/*.png

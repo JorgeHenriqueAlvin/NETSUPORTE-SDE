@@ -43,9 +43,9 @@ sealed class Technician:Form
     bool loading,closing;
     DateTime lastMove;
     readonly HashSet<int> held=[];
-    public Technician()
+    public Technician(TechnicianIdentity? injectedIdentity=null)
     {
-        Directory.CreateDirectory(folder);identity=LoadIdentity();LoadTeamCredential();
+        Directory.CreateDirectory(folder);identity=injectedIdentity??LoadIdentity();if(injectedIdentity is null)LoadTeamCredential();
         Text=$"SDE Suporte — {identity.Public.Name}";Width=1360;Height=850;MinimumSize=new(900,560);
         Font=new Font("Segoe UI",10);BackColor=Color.White;DoubleBuffered=true;KeyPreview=false;
         var sidebar=new Panel{Dock=DockStyle.Left,Width=330,Padding=new Padding(8)};

@@ -79,6 +79,14 @@ static class Tests
                 composer.Controls.OfType<Button>().Single().PerformClick();Application.DoEvents();
                 Check(sent=="Resposta do funcionário","interface permite resposta do funcionario sem console tecnico");
                 using(var notice=new EmployeeAnnouncements()){notice.Receive(new(0,"NOME PRIVADO DO TECNICO","Aviso de teste",DateTimeOffset.UtcNow));var rendered=notice.Controls.OfType<RichTextBox>().Single().Text;Check(rendered.Contains("AVISO DA TI")&&rendered.Contains("Aviso de teste")&&!rendered.Contains("NOME PRIVADO"),"aviso global nao exibe nome do tecnico");}
+                using(var previewIdentity=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Técnico de teste"))
+                using(var console=new Technician(previewIdentity))
+                {
+                    console.CreateControl();
+                    using var bitmap=new Bitmap(console.Width,console.Height);console.DrawToBitmap(bitmap,new Rectangle(Point.Empty,bitmap.Size));
+                    string qa=Path.Combine(Environment.GetEnvironmentVariable("RUNNER_TEMP")??Path.GetTempPath(),"SDE-Visual-QA");Directory.CreateDirectory(qa);bitmap.Save(Path.Combine(qa,"console.png"));
+                    Check(console.Controls.OfType<TabControl>().Single().TabPages.Count==5,"console inclui atualizacoes e abas de suporte");
+                }
                 owner.Close();
             }catch(Exception e){error=e;}
         });thread.SetApartmentState(ApartmentState.STA);thread.Start();thread.Join();if(error is not null)throw error;
@@ -326,8 +334,10 @@ static class Tests
                 await Task.WhenAll(Enumerable.Range(0,4).Select(async i=>{using var concurrent=await (i==0?client.Request(HttpMethod.Get,"/frame"):presenceProbe.Request(HttpMethod.Get,"/info"));}));
                 Console.WriteLine("OK: verificacao de presenca simultanea nao interrompe captura");
             }
+            var captureWatch=System.Diagnostics.Stopwatch.StartNew();
             using(var frame=await client.Request(HttpMethod.Get,"/frame"))
             {var bytes=await frame.Content.ReadAsByteArrayAsync();Check(bytes.Length>1000&&bytes[0]==0xff&&bytes[1]==0xd8,"captura real da tela produz JPEG");}
+            Console.WriteLine("MEDICAO: captura JPEG local em "+captureWatch.ElapsedMilliseconds+" ms.");
             form.Invoke(()=>{form.Activate();textbox.Focus();SetForegroundWindow(form.Handle);});await Task.Delay(500);
             IntPtr handle=(IntPtr)form.Invoke(()=>form.Handle);
             Check(GetForegroundWindow()==handle,"alvo exclusivo do teste em primeiro plano");
