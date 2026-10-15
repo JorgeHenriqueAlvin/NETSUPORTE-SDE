@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 #Requires -RunAsAdministrator
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$TechnicianIPv4,[Parameter(Mandatory)][string]$ClientIPv4,[Parameter(Mandatory)][string]$CertificatePath,[string]$ExpectedSha256)
+param([Parameter(Mandatory)][string]$TechnicianIPv4,[Parameter(Mandatory)][string]$ClientIPv4,[Parameter(Mandatory)][string]$CertificatePath,[string]$ExpectedSha256,[ValidateRange(1024,65535)][int]$Port=5986)
 $ErrorActionPreference='Stop'
 if($PSVersionTable.PSEdition -eq 'Desktop'){
  $env:PSModulePath=(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')+';'+(Join-Path $PSHOME 'Modules')
@@ -26,8 +26,8 @@ if(Test-Path -LiteralPath $stateFile){$saved=Get-Content $stateFile -Raw | Conve
 if(-not $already){Import-Certificate -FilePath $CertificatePath -CertStoreLocation 'Cert:\LocalMachine\Root' | Out-Null}
 @{Thumbprint=$cert.Thumbprint;ImportedByPilot=$owned;ClientIPv4=$ClientIPv4} | ConvertTo-Json | Set-Content -LiteralPath $stateFile -Encoding UTF8
 Write-Host 'Certificado publico conferido e registrado. Nenhuma senha foi gravada.'
-$tcp=Test-NetConnection -ComputerName $ClientIPv4 -Port 5986 -WarningAction SilentlyContinue
-if(-not $tcp.TcpTestSucceeded){throw 'A porta 5986 nao respondeu. Confira IPs, roteamento e firewall da rede.'}
-Test-WSMan -ComputerName $ClientIPv4 -Port 5986 -UseSSL -ErrorAction Stop | Out-Null
+$tcp=Test-NetConnection -ComputerName $ClientIPv4 -Port $Port -WarningAction SilentlyContinue
+if(-not $tcp.TcpTestSucceeded){throw "A porta $Port nao respondeu. Confira IPs, roteamento e firewall da rede."}
+Test-WSMan -ComputerName $ClientIPv4 -Port $Port -UseSSL -ErrorAction Stop | Out-Null
 Write-Host 'CANAL HTTPS VALIDADO. Abra o Tecnico 0.8, aba Implantar Clientes, modo HTTPS.'
 Write-Host 'Informe 10.x/172.x/192.168.x do cliente na busca e autentique com sua conta administrativa no aplicativo.'
