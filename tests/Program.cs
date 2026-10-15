@@ -141,7 +141,8 @@ static class Tests
         try{using var response=await otherSession.Request(HttpMethod.Get,"/chat");throw new Exception("chat sem token aceito");}
         catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.Forbidden){Console.WriteLine("OK: chat exige token do atendimento ativo");}
         try{using var bad=await otherSession.Request(HttpMethod.Post,"/announcement",new AnnouncementRequest(Guid.NewGuid().ToString(),"","nao-e-uma-imagem"));throw new Exception("foto invalida recebida");}catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.BadRequest){Console.WriteLine("OK: agente rejeita foto invalida sem exibir");}
-        var notice=new AnnouncementRequest(Guid.NewGuid().ToString(),"Aviso geral de teste");
+        using var boardPhoto=new Bitmap(80,60);using var photoData=new MemoryStream();boardPhoto.Save(photoData,System.Drawing.Imaging.ImageFormat.Jpeg);
+        var notice=new AnnouncementRequest(Guid.NewGuid().ToString(),"Aviso geral de teste",Convert.ToBase64String(photoData.ToArray()));
         using(var response=await otherSession.Request(HttpMethod.Post,"/announcement",notice))Check(response.IsSuccessStatusCode,"aviso global autenticado funciona sem iniciar atendimento");
         using(var duplicate=await otherSession.Request(HttpMethod.Post,"/announcement",notice))
         using(var payload=JsonDocument.Parse(await duplicate.Content.ReadAsStringAsync()))Check(payload.RootElement.GetProperty("duplicate").GetBoolean(),"reenvio do mesmo aviso nao duplica janela ou mensagem");
@@ -284,8 +285,11 @@ static class Tests
         Click(dialog,"Recusar");try{await refusal;throw new Exception("recusa ignorada");}catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.Forbidden){Console.WriteLine("OK: recusa bloqueia atendimento");}
         var approval=client.Start();Click(await Prompt(),"Autorizar");await approval;Check(client.Session is not null,"funcionario autoriza atendimento real");await client.Stop();
         var timeout=client.Start();await Prompt();try{await timeout;throw new Exception("ausencia de resposta liberou acesso");}catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.Forbidden){Console.WriteLine("OK: ausencia de resposta bloqueia acesso sem bypass");}
+        var policyPath=Path.Combine(Path.GetDirectoryName(configFile)!,"access-policy.json");
+        Json.Write(policyPath,new{deviceId=config.Device.Id,mode="PreAutorizado",approvedBy="Administrador de teste",reason="Maquina previamente autorizada para teste administrativo"});
+        try{await client.Start();Check(client.Session is not null,"politica administrativa previa autoriza nova solicitacao sem ignorar recusa anterior");await client.Stop();}finally{File.Delete(policyPath);}
         string log=File.ReadAllText(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"SdeSuporte","logs","audit.jsonl"));
-        Check(new[]{"access_requested","consent_declined","consent_approved","consent_timeout","started","technician_stop"}.All(log.Contains),"solicitacoes, respostas e encerramento registrados no log");
+        Check(new[]{"access_requested","consent_declined","consent_approved","consent_timeout","preauthorized_access","started","technician_stop"}.All(log.Contains),"solicitacoes, respostas e encerramento registrados no log");
     }
     static async Task Installed(string configFile)
     {

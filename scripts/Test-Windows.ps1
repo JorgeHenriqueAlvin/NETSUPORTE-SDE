@@ -8,8 +8,12 @@ dotnet run --project "$root\tests\SdeSuporte.Tests.csproj" -c Release -- prepare
 if($LASTEXITCODE -ne 0){throw 'Preparacao de teste falhou.'}
 $payload=Join-Path $fixture 'payload'
 Expand-Archive -LiteralPath "$root\dist\agent-payload.zip" -DestinationPath $payload -Force
-& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$payload\AutoConfigure-Agent.ps1" -DeploymentProfile "$fixture\deployment.json" -PayloadDirectory $payload -InstallDirectory $agentDir -Port 17443 -NoStartup -NonInteractive -RequireConsent $false
+& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$payload\AutoConfigure-Agent.ps1" -DeploymentProfile "$fixture\deployment.json" -PayloadDirectory $payload -InstallDirectory $agentDir -Port 17443 -NoStartup -NonInteractive
 if($LASTEXITCODE -ne 0){throw 'Instalacao automatica em Windows PowerShell 5.1 falhou.'}
+$testConfigPath=Join-Path $agentDir 'agent.json'
+$testConfig=Get-Content $testConfigPath -Raw | ConvertFrom-Json
+$testConfig.requireConsent=$false
+[IO.File]::WriteAllText($testConfigPath,($testConfig | ConvertTo-Json -Depth 20),(New-Object Text.UTF8Encoding($false)))
 $process=Start-Process "$agentDir\SDE-Suporte-Cliente.exe" -PassThru
 try {
  dotnet run --project "$root\tests\SdeSuporte.Tests.csproj" -c Release -- live $fixture "$agentDir\agent.json"
@@ -37,8 +41,12 @@ $teamFixture=Join-Path $env:RUNNER_TEMP 'SDE-Team-Fixture'
 $teamAgent=Join-Path $teamFixture 'Agent'
 dotnet run --project "$root\tests\SdeSuporte.Tests.csproj" -c Release -- prepare-team $teamFixture
 if($LASTEXITCODE -ne 0){throw 'Falha ao preparar equipe de teste.'}
-& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$payload\AutoConfigure-Agent.ps1" -DeploymentProfile "$teamFixture\deployment.json" -PayloadDirectory $payload -InstallDirectory $teamAgent -Port 17443 -NoStartup -NonInteractive -RequireConsent $false
+& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$payload\AutoConfigure-Agent.ps1" -DeploymentProfile "$teamFixture\deployment.json" -PayloadDirectory $payload -InstallDirectory $teamAgent -Port 17443 -NoStartup -NonInteractive
 if($LASTEXITCODE -ne 0){throw 'Instalacao automatica por equipe falhou.'}
+$teamConfigPath=Join-Path $teamAgent 'agent.json'
+$teamConfig=Get-Content $teamConfigPath -Raw | ConvertFrom-Json
+$teamConfig.requireConsent=$false
+[IO.File]::WriteAllText($teamConfigPath,($teamConfig | ConvertTo-Json -Depth 20),(New-Object Text.UTF8Encoding($false)))
 $teamProcess=Start-Process "$teamAgent\SDE-Suporte-Cliente.exe" -PassThru
 try {
  dotnet run --project "$root\tests\SdeSuporte.Tests.csproj" -c Release -- live-team $teamFixture "$teamAgent\agent.json"

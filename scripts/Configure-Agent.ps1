@@ -23,7 +23,7 @@ $script:technicianFiles=@()
 $select.Add_Click({$d=New-Object System.Windows.Forms.OpenFileDialog;$d.Filter='Identificacao do tecnico (*.sdetech)|*.sdetech';$d.Multiselect=$true;if($d.ShowDialog() -eq 'OK'){$script:technicianFiles=@($d.FileNames);$files.Text=($d.FileNames -join '; ')};$d.Dispose()})
 LabelAt 'Redes dos tecnicos: LocalSubnet ou sub-redes separadas por virgula' 185
 $networks=New-Object System.Windows.Forms.TextBox;$networks.Location=New-Object System.Drawing.Point(20,212);$networks.Width=600;$networks.Text='LocalSubnet';$form.Controls.Add($networks)
-$consent=New-Object System.Windows.Forms.CheckBox;$consent.Text='Pedir confirmacao do funcionario a cada atendimento';$consent.Location=New-Object System.Drawing.Point(20,250);$consent.Width=600;$form.Controls.Add($consent)
+$consent=New-Object System.Windows.Forms.CheckBox;$consent.Checked=$true;$consent.Text='Pedir confirmacao do funcionario a cada atendimento';$consent.Location=New-Object System.Drawing.Point(20,250);$consent.Width=600;$form.Controls.Add($consent)
 $configure=New-Object System.Windows.Forms.Button;$configure.Text='Configurar e exportar computador';$configure.Location=New-Object System.Drawing.Point(20,300);$configure.Size=New-Object System.Drawing.Size(600,45);$form.Controls.Add($configure)
 $configure.Add_Click({
  try {
