@@ -1,40 +1,69 @@
-# Requer PowerShell como administrador. Certificado emitido pela CA interna, instalado previamente.
-# Exemplo completo no README. Não desativa validação TLS nem autenticação do Windows.
 #Requires -RunAsAdministrator
+[CmdletBinding()]
 param(
- [Parameter(Mandatory)][string]$Hostname,
  [Parameter(Mandatory)][string]$Sector,
- [string[]]$AllowedGroups = @(),
- [string[]]$AllowedUsers = @(),
- [Parameter(Mandatory)][string]$CertificateThumbprint,
- [Parameter(Mandatory)][string[]]$TechnicianSubnets,
- [switch]$AuthorizedUnattended
+ [Parameter(Mandatory)][string[]]$TechnicianFiles,
+ [Parameter(Mandatory)][string]$ExportPath,
+ [string[]]$TechnicianNetworks = @('LocalSubnet'),
+ [bool]$RequireConsent = $false,
+ [int]$Port = 7443,
+ [string]$InstallDirectory = "$env:ProgramFiles\SDE-Suporte\Agent",
+ [string]$BinaryDirectory = '',
+ [string]$ConnectionHost = '',
+ [switch]$NoStartup
 )
-$ErrorActionPreference = 'Stop'
-if ($Hostname -notmatch '^[a-zA-Z0-9][a-zA-Z0-9.-]+\.[a-zA-Z0-9.-]+$') { throw 'Informe o FQDN real do computador.' }
-if ($TechnicianSubnets.Count -eq 0 -or ($TechnicianSubnets | Where-Object { $_ -in @('Any','0.0.0.0/0','::/0','Internet') })) { throw 'Informe somente sub-redes específicas dos técnicos.' }
-$thumb = $CertificateThumbprint.Replace(' ','')
-$cert = Get-Item "Cert:\LocalMachine\My\$thumb"
-if (-not $cert.HasPrivateKey -or $cert.NotAfter -lt (Get-Date)) { throw 'Certificado expirado ou sem chave privada.' }
-if ($Hostname -notin @($cert.DnsNameList | ForEach-Object { $_.Unicode })) { throw 'O SAN do certificado deve conter o FQDN exato.' }
-$userSids = @($AllowedUsers | ForEach-Object { ([System.Security.Principal.NTAccount]::new($_)).Translate([System.Security.Principal.SecurityIdentifier]).Value })
-$sids = @($AllowedGroups | ForEach-Object { ([System.Security.Principal.NTAccount]::new($_)).Translate([System.Security.Principal.SecurityIdentifier]).Value })
-if ($sids.Count -eq 0 -and $userSids.Count -eq 0) { throw 'Informe pelo menos uma conta em AllowedUsers ou um grupo em AllowedGroups.' }
-$root = Split-Path $PSScriptRoot -Parent
-$exe = "$root\dist\Agent\SDE-Suporte-Cliente.exe"
-if (-not (Test-Path $exe)) { throw 'Execute Build.ps1 primeiro.' }
-$target = "$env:ProgramFiles\SDE-Suporte"
-New-Item $target -ItemType Directory -Force | Out-Null
-# Diretório de código e política gravável apenas por administradores/SYSTEM.
-& icacls.exe $target /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' | Out-Null
-if ($LASTEXITCODE -ne 0) { throw 'Não foi possível proteger a pasta.' }
-Copy-Item $exe "$target\SDE-Suporte-Cliente.exe" -Force
-@{ Hostname=$Hostname; Sector=$Sector; AllowedGroupSids=$sids; AllowedUserSids=$userSids; Port=7443; RequireConsent=(-not $AuthorizedUnattended.IsPresent) } | ConvertTo-Json | Set-Content "$target\agent.json" -Encoding UTF8
-$interactive = ([System.Security.Principal.SecurityIdentifier]::new('S-1-5-4')).Translate([System.Security.Principal.NTAccount]).Value
-& netsh.exe http add urlacl "url=https://${Hostname}:7443/" "user=$interactive"
-if ($LASTEXITCODE -ne 0) { throw 'URL já reservada ou erro. Inspecione netsh http show urlacl antes de alterar reservas existentes.' }
-& netsh.exe http add sslcert 'ipport=0.0.0.0:7443' "certhash=$thumb" 'appid={c43a8ff9-42a4-4de1-9c45-6a49b6c9f27d}' 'certstorename=MY'
-if ($LASTEXITCODE -ne 0) { throw 'Falha no vínculo TLS. Confira netsh http show sslcert. A reserva URL pode precisar ser removida antes de repetir.' }
-New-NetFirewallRule -DisplayName 'SDE Suporte piloto HTTPS' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 7443 -Profile Domain -RemoteAddress $TechnicianSubnets | Out-Null
-New-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'SdeSuporte' -Value "`"$target\SDE-Suporte-Cliente.exe`"" -PropertyType String -Force | Out-Null
-Write-Host 'Instalado. Entre novamente no Windows para iniciar o agente na sessão do funcionário.'
+$ErrorActionPreference='Stop'
+if ([string]::IsNullOrWhiteSpace($Sector) -or $Sector.Length -gt 100) { throw 'Informe o setor (ate 100 caracteres).' }
+if ($Port -lt 1024 -or $Port -gt 65535) { throw 'Porta invalida.' }
+if ($TechnicianFiles.Count -eq 0) { throw 'Selecione a identificacao publica de pelo menos um tecnico.' }
+$sha=[System.Security.Cryptography.SHA256]::Create()
+$techs=@($TechnicianFiles | ForEach-Object {
+ $tech=Get-Content -LiteralPath $_ -Raw | ConvertFrom-Json
+ $publicBytes=[Convert]::FromBase64String($tech.publicKey)
+ $id=([BitConverter]::ToString($sha.ComputeHash($publicBytes))).Replace('-','')
+ if ($tech.id -cne $id -or [string]::IsNullOrWhiteSpace($tech.name) -or $tech.name.Length -gt 80 -or $tech.name -match '[\x00-\x1F\x7F]') { throw "Identificacao de tecnico invalida: $_" }
+ @{id=$id;name=[string]$tech.name;publicKey=[string]$tech.publicKey}
+})
+if (($techs | Group-Object id | Where-Object Count -gt 1)) { throw 'Identificacao de tecnico duplicada.' }
+if ($TechnicianNetworks.Count -eq 0 -or ($TechnicianNetworks | Where-Object { $_ -in @('Any','0.0.0.0/0','::/0','Internet') })) { throw 'Use LocalSubnet ou as sub-redes especificas dos tecnicos.' }
+if (-not $ConnectionHost) {
+ $addresses=@(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.AddressState -eq 'Preferred' })
+ if ($addresses.Count -eq 0) { throw 'Nenhum endereco IPv4 da rede encontrado.' }
+ $ConnectionHost=[string]$addresses[0].IPAddress
+}
+if ([Uri]::CheckHostName($ConnectionHost) -eq 'Unknown' -or $ConnectionHost -match '[:/\\]') { throw 'Endereco da rede invalido.' }
+New-Item -ItemType Directory -Path $InstallDirectory -Force | Out-Null
+& icacls.exe $InstallDirectory /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel proteger a pasta do agente.' }
+if ($BinaryDirectory) { Copy-Item -Path "$BinaryDirectory\*" -Destination $InstallDirectory -Recurse -Force }
+$exe=Join-Path $InstallDirectory 'SDE-Suporte-Cliente.exe'
+if (-not (Test-Path -LiteralPath $exe)) { throw 'Instale o aplicativo antes de configurar.' }
+Get-CimInstance Win32_Process -Filter "Name='SDE-Suporte-Cliente.exe'" | Where-Object ExecutablePath -eq $exe | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+$appid='{c43a8ff9-42a4-4de1-9c45-6a49b6c9f27d}'
+$binding=(& netsh.exe http show sslcert "ipport=0.0.0.0:$Port" | Out-String)
+if ($binding -match '[0-9a-fA-F]{40}') {
+ if ($binding -notmatch 'c43a8ff9-42a4-4de1-9c45-6a49b6c9f27d') { throw 'A porta HTTPS ja esta ocupada por outro aplicativo.' }
+ & netsh.exe http delete sslcert "ipport=0.0.0.0:$Port" | Out-Null
+ if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel atualizar o vinculo HTTPS.' }
+}
+# The key stays in the Windows machine certificate store, never in an exported PFX.
+$cert=New-SelfSignedCertificate -DnsName $env:COMPUTERNAME -CertStoreLocation 'Cert:\LocalMachine\My' -Type SSLServerAuthentication -KeyAlgorithm RSA -KeyLength 2048 -KeyExportPolicy NonExportable -NotAfter (Get-Date).AddYears(3) -FriendlyName "SDE-Suporte-LAN-$Port"
+& netsh.exe http add sslcert "ipport=0.0.0.0:$Port" "certhash=$($cert.Thumbprint)" "appid=$appid" 'certstorename=MY' | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'Falha ao vincular o certificado HTTPS.' }
+$url="https://+:$Port/"
+& netsh.exe http delete urlacl "url=$url" 2>&1 | Out-Null
+& netsh.exe http add urlacl "url=$url" 'sddl=D:(A;;GX;;;BU)(A;;GX;;;BA)(A;;GX;;;SY)' | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'Falha ao reservar o endereco do agente.' }
+$rule="SDE-Suporte-LAN-$Port"
+Get-NetFirewallRule -Name $rule -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+New-NetFirewallRule -Name $rule -DisplayName "SDE Suporte LAN $Port" -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port -Profile Domain,Private -RemoteAddress $TechnicianNetworks | Out-Null
+$device=@{id=[guid]::NewGuid().ToString();name=$env:COMPUTERNAME;sector=$Sector;host=$ConnectionHost;port=$Port;certificateSha256=([BitConverter]::ToString($sha.ComputeHash($cert.RawData))).Replace('-','')}
+$config=@{device=$device;technicians=$techs;requireConsent=$RequireConsent;certificateThumbprint=$cert.Thumbprint}
+$utf8=New-Object System.Text.UTF8Encoding($false)
+[IO.File]::WriteAllText((Join-Path $InstallDirectory 'agent.json'),($config | ConvertTo-Json -Depth 8),$utf8)
+[IO.File]::WriteAllText($ExportPath,($device | ConvertTo-Json -Depth 5),$utf8)
+if (-not $NoStartup) {
+ New-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name SdeSuporte -Value "`"$exe`"" -PropertyType String -Force | Out-Null
+}
+$sha.Dispose()
+Write-Host "Agente configurado. Arquivo do computador: $ExportPath"

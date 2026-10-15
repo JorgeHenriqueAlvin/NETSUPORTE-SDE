@@ -1,127 +1,57 @@
-# SDE Suporte — desenvolvimento 0.3
+# SDE Suporte LAN — 0.4.0
 
-Projeto Windows nativo para atendimento na rede interna, com autenticação do domínio e autorização por grupo/setor em cada máquina. Entrega em código-fonte; NÃO inclui executável compilado, homologação Windows ou teste de carga. Não instalar nas 400 máquinas antes do piloto.
+Aplicativos Windows x64 para acesso remoto na rede local. Esta versão dispensa domínio, Active Directory, grupos corporativos e emissão manual de certificado. O cliente recebe atendimento e vê uma faixa com o nome aprovado do técnico e a hora de início; o console pertence ao técnico.
 
-## O que está implementado
+## Instalação em três passos
 
-- Dois executáveis com entradas separadas: `SDE-Suporte-Tecnico.exe` e `SDE-Suporte-Cliente.exe`. O executável cliente sempre inicia o agente; não oferece console por argumentos.
-- Agente sem painel administrativo. Fica na bandeja quando ocioso e mostra aviso de atendimento com o login corporativo autenticado, setor e hora de início.
-- Acesso sem confirmação configurável exclusivamente na política protegida pelo administrador, com `-AuthorizedUnattended` no instalador. Por padrão exige confirmação.
-- HTTPS com certificado confiável e autenticação integrada Windows/Negotiate, usando a conta já conectada no console. Não solicita nem armazena senhas.
-- Lista de computadores configurada por arquivo. Cada agente verifica o SID dos grupos permitidos, independentemente da lista do console.
-- Confirmação do funcionário quando a política de atendimento exige autorização por sessão.
-- Uma sessão por computador, vinculada à identidade autenticada, com token aleatório e duração máxima de 15 minutos.
-- Tela principal em JPEG a aproximadamente 1 quadro por segundo, clique esquerdo/direito, digitação de texto e teclas Enter/Tab/Backspace/Escape.
-- Aviso visível durante a sessão, sem botões de administração para o funcionário. Após desconexão, o aviso desaparece. Sem solicitações válidas por 20 segundos, a sessão expira. O console tenta encerrar a sessão ao fechar.
-- Informações básicas em `/info` para técnicos autorizados e log JSONL local de autorização, sessão, tipos de entrada e erros. Não registra o texto digitado nem salva telas.
+### 1. No computador do técnico
 
-## Limites desta versão
+Execute `SDE-Suporte-Instalador-Windows-x64.exe`, escolha **Console do técnico** e abra o atalho no menu Iniciar. No primeiro uso, informe seu nome. Clique em **1. Exportar minha identificação** e salve o arquivo `.sdetech` num pendrive ou compartilhamento de TI. Esse arquivo contém sua chave pública; a chave privada fica no Windows da sua conta e não é exportada.
 
-Não contém chat, transferência de arquivos, reinicialização, descoberta automática, cadastro visual de permissões, inventário completo, auditoria central, vídeo fluido, arraste do mouse, atalhos completos, suporte a múltiplos monitores, tela de login, UAC ou acesso sem funcionário conectado. O console usa uma lista local e não oculta previamente máquinas sem permissão; o agente é quem bloqueia o acesso. A lista não indica disponibilidade em tempo real.
+### 2. No computador do funcionário
 
-O agente roda sem elevação na sessão interativa, não como serviço. Não atende máquinas sem usuário conectado, bloqueadas ou com sessões simultâneas. Não contorna UAC. O funcionário não tem botões no agente; como o processo roda na sua conta, ainda pode encerrá-lo pelo Gerenciador de Tarefas. Bloqueio de encerramento não está implementado. Logs locais são evidência operacional do piloto, não auditoria inviolável. Para 400 máquinas, a próxima etapa é validar gerenciamento por GPO, centralização de logs e transporte de vídeo mais eficiente. Não há teste de capacidade para 400 conexões simultâneas.
+Use o mesmo instalador, escolha **Agente do cliente** e mantenha marcada a configuração ao concluir. Informe o setor e selecione o arquivo `.sdetech` de cada técnico autorizado. A lista vale somente para essa máquina, permitindo organizar permissões por setor. A configuração cria o certificado local automaticamente, protege a política e configura o firewall. Salve o arquivo de computador `.sdehost` quando solicitado.
 
-## Autorização sem grupos — versão 0.3
+**LocalSubnet** libera a conexão somente a partir da sub-rede local. Se os técnicos estiverem em outras VLANs, informe as redes IPv4 reais no campo de redes, separadas por vírgula. O firewall só é liberado nos perfis Privado e Domínio; uma rede classificada como Pública exige configuração da TI.
 
-Não é necessário criar grupos no domínio. Informe as contas em `-AllowedUsers 'SICM\jorge.alvin'`. Para vários técnicos, use uma lista PowerShell: `-AllowedUsers 'SICM\jorge.alvin','SICM\OUTRO_LOGIN_REAL'`. Substitua o segundo login pelo real; ele não está autorizado previamente.
+Por padrão, técnicos previamente autorizados conectam sem confirmação a cada sessão. Para exigir confirmação, marque essa opção na configuração. A identificação do atendimento permanece visível nos dois modos.
 
-A lista é aplicada por computador/setor durante a instalação, e a autorização compara o SID da conta autenticada, não um nome enviado pelo console. Remover o SID da política e reiniciar o agente revoga novas solicitações dessa conta. O aplicativo não modifica o Active Directory. A conta Jorge somente terá acesso nas máquinas onde for explicitamente incluída pela instalação; esta atualização não instala nem concede permissões nas máquinas da empresa remotamente.
+Após configurar, saia e entre no Windows do funcionário para iniciar o agente sem elevação. Alternativamente, abra **Iniciar agente** pelo menu Iniciar na sessão normal do funcionário. O ícone fica na bandeja, sem console administrativo. Se faltar configuração, aparece uma explicação com botão para configurar, em vez da exceção de arquivo ausente.
 
-## Domínio confirmado da empresa
+### 3. De volta ao técnico
 
-- Domínio Windows: `SICM`.
-- Domínio DNS: `SICM.INTRANET`.
-- Login confirmado do técnico: `SICM\jorge.alvin`.
-- O aviso de atendimento usa a identidade autenticada real; o nome acima não fica fixado no aplicativo.
-- `SICM\SDE-Suporte-CMTIC` é uma sugestão de grupo, ainda não confirmado/criado. A conta do técnico precisa pertencer ao grupo autorizado configurado na máquina.
-- `pc-piloto.SICM.INTRANET` é apenas exemplo. Substitua pelo FQDN real; certificado e DNS devem corresponder à máquina.
+Clique em **2. Importar computador**, selecione o `.sdehost` gerado na máquina atendida, selecione o computador e clique em **Conectar**. O arquivo inclui o IP local e a identidade do certificado dessa máquina. Use **Alterar IP** se o DHCP mudar o endereço; a identidade do certificado continua sendo conferida. Não é necessário editar JSON nem instalar certificados no computador do técnico.
 
-## 1. Preparação pela equipe de domínio
+O console permite pesquisa por computador, setor ou IP, clique e arraste, rolagem, teclado quando a tela remota tem foco, envio de texto e encerramento do atendimento. O botão Verificar conexão testa o agente sem iniciar transmissão de tela.
 
-1. Escolha duas máquinas piloto Windows x64, no domínio, uma do técnico e outra do funcionário. Use versões Windows homologadas pela TI.
-2. Tenha o SDK .NET 10 na máquina de compilação (https://dotnet.microsoft.com/download/dotnet/10.0). A compilação inicial precisa baixar componentes; os executáveis publicados serão autocontidos.
-3. Sem grupos, use contas individuais em `-AllowedUsers`, por exemplo `SICM\jorge.alvin`. O instalador resolve a conta para seu SID no domínio e grava esse identificador na política protegida da máquina. Opcionalmente, `-AllowedGroups` continua disponível. Uma conta comum do domínio não recebe acesso automaticamente.
-4. Emita pela CA interna um certificado de servidor para cada agente, com SAN igual ao FQDN e EKU Server Authentication, instalado em LocalMachine\My com chave privada. O computador do técnico deve confiar na CA e resolver o FQDN pelo DNS interno.
-5. Anote a sub-rede real dos técnicos. Não abra porta no roteador nem publique o agente na internet.
-6. A atribuição de setor é da máquina: usuários podem alternar seus logins sem mudar os grupos autorizados no agente.
+## Identificação e autorização
 
-## 2. Compilar
+Sem domínio, o nome exibido é o nome da identificação que a TI aprovou no agente. Não é consultado no login corporativo. Uma requisição não pode trocar esse nome: o agente obtém o nome da sua própria lista de técnicos autorizados. A chave privada identifica criptograficamente o técnico; o nome sozinho não libera acesso.
 
-No PowerShell, dentro da pasta do projeto:
+Cada requisição é assinada e vinculada à máquina, ao caminho, ao conteúdo e à sessão. Datas e nonces impedem reutilização de requisições. O console só aceita o certificado cujo SHA-256 consta no arquivo de computador importado; não há opção para aceitar qualquer certificado. Não copie identificações de técnico entre contas, nem importe arquivos de computador de origem desconhecida.
 
-```powershell
-.\scripts\Build.ps1
-```
+Para acrescentar ou retirar técnicos, execute **Configurar agente** como administrador e selecione a lista completa desejada. A reconfiguração encerra o agente, cria nova identidade de conexão e exige reimportar o `.sdehost` no console. O programa não adiciona contas ao Windows e não altera o domínio.
 
-Os resultados serão `dist\Agent\SDE-Suporte-Cliente.exe` e `dist\Technician\SDE-Suporte-Tecnico.exe`. A compilação foi preparada, mas não executada no ambiente de entrega porque ele não dispõe de Windows/.NET SDK. Havendo erro, não distribua: registre a mensagem para correção.
+## Limites e implantação
 
-## 3. Instalar na máquina do funcionário
+Esta é uma implementação própria, sem promessa de equivalência completa ao NetSupport. Precisa de funcionário conectado e área de trabalho desbloqueada. Não opera antes do login, não acessa desktop seguro/UAC e não é serviço Windows. O agente pode ser encerrado pelo Gerenciador de Tarefas da conta local. Programas executados como administrador podem recusar comandos de um agente sem elevação.
 
-Copie o projeto com `dist` para essa máquina. No PowerShell como administrador, substitua TODOS os valores abaixo pelos reais:
+A sessão termina ao bloquear a estação, após 20 segundos sem requisições válidas ou após uma hora. Ao encerrar, as teclas/botões mantidos pela sessão são liberados. Não existe gravação de tela, chat, transferência de arquivos, impressão remota, inventário completo ou gerenciamento central. A transmissão atual é JPEG de tela, sem codec de vídeo. O cadastro suporta uma lista de máquinas, mas 400 sessões simultâneas não foram testadas. Comece em duas máquinas reais antes de ampliar.
 
-```powershell
-.\scripts\Install-Agent.ps1 `
-  -Hostname 'pc-piloto.SICM.INTRANET' `
-  -Sector 'CMTIC' `
-  -AllowedUsers 'SICM\jorge.alvin' `
-  -CertificateThumbprint 'IMPRESSAO_DIGITAL_REAL_DO_CERTIFICADO' `
-  -TechnicianSubnets '10.0.10.0/24' `
-  -AuthorizedUnattended
-```
+A rede deve permitir TCP 7443 entre técnico e agente. O certificado é autoassinado, não exportável, válido por três anos e validado por sua identidade previamente importada. Não exige confiança da CA corporativa. Não encaminhe essa porta para a internet.
 
-O script copia para Program Files, protege código e política contra alteração por usuários comuns, reserva uma URL HTTPS, vincula o certificado no HTTP.sys, abre a porta 7443 somente no perfil Domain e nas sub-redes indicadas e registra inicialização visível no login. Não cria serviço nem instala silenciosamente nas demais máquinas. Algumas configurações de domínio podem exigir ajuste de SPN/Negotiate pela TI; use FQDN, nunca IP para o piloto.
+Logs locais de início/fim/erro: `%LOCALAPPDATA%\SdeSuporte\logs\audit.jsonl`. Não são uma auditoria central inviolável. Não registram o texto digitado. Lista e identificação do técnico ficam em `%LOCALAPPDATA%\SdeSuporte` da conta do console. Política do agente fica em `C:\Program Files\SDE-Suporte\Agent\agent.json`, protegida contra alteração por usuário comum.
 
-A opção `-AuthorizedUnattended` permite acesso sem confirmação, mantendo identificação visível e autorização por grupo. Omita-a para exigir confirmação.
+## Compilar e testar
 
-Faça logoff/login do funcionário. O ícone do agente deve aparecer na bandeja, sem painel. Se precisar iniciar manualmente:
+O GitHub Actions compila os dois aplicativos .NET 10, testa o protocolo e executa um atendimento local entre processos Windows, incluindo captura e digitação num aplicativo de teste. Também gera o instalador e testa as seleções de técnico e agente, inclusive abrir o agente sem configuração. Confira o resultado real na aba Actions; aprovação no CI não comprova a conectividade/firewall entre duas máquinas da sua empresa.
 
-```powershell
-& 'C:\Program Files\SDE-Suporte\SDE-Suporte-Cliente.exe'
-```
+No Windows com SDK .NET 10: `scripts\Build.ps1`. Os testes de integração usam uma porta de teste e certificado temporário, exigem administrador e um desktop Windows interativo: `scripts\Test-Windows.ps1`.
 
-## 4. Usar no computador do técnico
+Para uso normal baixe o instalador na pasta **release** do artefato de uma execução bem-sucedida no GitHub. Instalador e executáveis ainda não possuem assinatura Authenticode.
 
-1. Copie o conteúdo de `dist\Technician` para uma pasta do técnico.
-2. Copie `src\machines.example.json` para a MESMA pasta e renomeie para `machines.json`.
-3. Edite os FQDNs e setores reais. Acrescente máquinas ao array JSON conforme o piloto avançar.
-4. Abra o executável sem argumentos, com o login corporativo do técnico.
-5. Selecione a máquina e clique em Conectar. O funcionário confirma se essa exigência estiver habilitada na política. Clique na imagem para enviar cliques e use o campo de texto/botões para digitar.
-6. Encerre pelo console. O agente mantém apenas o aviso de identificação; não contém controles para o cliente. Ao fechar o console há tentativa de encerramento; em queda de rede, a sessão termina após 20 segundos sem requisições autenticadas.
+## Remoção
 
-## 5. Homologação obrigatória antes da expansão
+Desinstale por Aplicativos do Windows ou pelo menu Iniciar. A limpeza remove o vínculo e certificado criados pelo agente, a reserva da porta, a regra de firewall e a inicialização automática. Identificação privada do técnico e logs da conta são preservados; uma reinstalação pode reutilizar a identificação do técnico. Arquivos `.sdehost` exportados não são apagados dos locais escolhidos.
 
-- Técnico fora do grupo: recebe 403, nenhuma tela liberada.
-- Técnico de outro setor: bloqueado mesmo conhecendo o FQDN.
-- Com consentimento habilitado, recusa bloqueia acesso. Com atendimento previamente autorizado, o acesso é direto; em ambos os casos a faixa identifica o login autenticado e horário.
-- Encerramento pelo técnico: solicitações posteriores falham; a faixa desaparece. Fechar abruptamente o console: aguardar no máximo 20 segundos mais o intervalo do temporizador.
-- Sessão expira em 15 minutos; tokens não funcionam com outra conta.
-- Certificado inválido ou FQDN errado: cliente recusa conexão. Não desabilitar validação TLS para resolver.
-- Bloquear a estação encerra a sessão; desbloquear não reabre acesso automaticamente.
-- Confira entrada, escala da tela, tamanho dos quadros, banda, CPU e logs em um atendimento real.
-- Faça piloto com 5 máquinas e 2 técnicos, depois 20 máquinas. Só amplie quando a TI aprovar os resultados.
-
-Logs: `%LOCALAPPDATA%\SdeSuporte\audit.jsonl` na conta do funcionário. O sistema não está conectado ao domínio da empresa durante esta entrega; grupos, DNS, certificado e firewall precisam ser configurados localmente pela TI.
-
-## Desinstalação
-
-Feche o agente. Execute `scripts\Uninstall-Agent.ps1 -Hostname 'FQDN_REAL'` como administrador, confira os resultados e remova a pasta de instalação. O certificado e logs são preservados. Os scripts não revertem automaticamente alterações parciais: em falha, confira reservas HTTP.sys/firewall antes de repetir.
-
-## Referências técnicas
-
-- Windows Authentication: https://learn.microsoft.com/aspnet/core/security/authentication/windowsauth
-- HttpListener: https://learn.microsoft.com/dotnet/api/system.net.httplistener
-- Windows Forms: https://learn.microsoft.com/dotnet/desktop/winforms/
-
-Autoria do projeto: Jorge Henrique — CMTIC/SDE. Implementação inicial preparada com assistência de IA; requer revisão e homologação da equipe responsável.
-
-## Compilação pelo GitHub
-
-O arquivo `.github/workflows/windows-build.yml` compila os dois aplicativos em Windows e disponibiliza um artefato para download. Publique o CONTEÚDO desta pasta na raiz de um repositório e execute Actions → Compilar SDE Suporte para Windows → Run workflow. A rotina é executada no repositório NETSUPORTE-SDE. Consulte a aba Actions para o resultado da compilação. Os executáveis gerados não possuem assinatura Authenticode. A compilação não comprova funcionamento de domínio ou acesso remoto.
-
-## Próxima etapa de engenharia
-
-O serviço Windows e a comunicação segura com o componente da sessão interativa ainda NÃO estão implementados. Esta versão trabalha somente com funcionário conectado e área de trabalho desbloqueada. O código não deve ser apresentado como equivalente completo ao NetSupport. Não realiza administração da tela de login, UAC ou desktop seguro. A criação do instalador final depende de compilação e homologação Windows, implantação de certificados da empresa e definição dos grupos de domínio.
-
-## Instalador Windows
-
-O GitHub Actions gera `SDE-Suporte-Instalador-Windows-x64.exe`. Execute como administrador e escolha Console do técnico ou Agente do cliente. Na instalação do agente, marque a configuração ao concluir. Ela detecta o FQDN em SICM.INTRANET e solicita setor, contas autorizadas, certificado existente e sub-redes dos técnicos. A conta sugerida é SICM\jorge.alvin. Não cria certificado nem altera o domínio. Sem concluir a configuração, o agente não estará operacional. O console exige edição de `machines.json` na pasta Technician com os nomes reais. A instalação não demonstra homologação do acesso remoto. Instalador sem assinatura Authenticode.
+Autoria do projeto: Jorge Henrique — CMTIC/SDE. Projeto assistido por IA; validar em máquinas reais antes da distribuição ampla.

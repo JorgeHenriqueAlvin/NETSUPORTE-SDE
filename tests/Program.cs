@@ -1,0 +1,94 @@
+using System.Net;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using SdeSuporte;
+
+static class Tests
+{
+    static void Check(bool value,string label){if(!value)throw new Exception("FALHOU: "+label);Console.WriteLine("OK: "+label);}
+    static async Task<int> Main(string[] args)
+    {
+        try
+        {
+            if(args[0]=="prepare")
+            {
+                Directory.CreateDirectory(args[1]);
+                using var id=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Técnico de Teste");
+                Json.Write(Path.Combine(args[1],"tecnico.sdetech"),id.Public);File.WriteAllBytes(Path.Combine(args[1],"private-test.pk8"),id.ExportPrivate());return 0;
+            }
+            if(args[0]=="protocol") {Protocol();return 0;}
+            await Live(args[1],args[2]);return 0;
+        }catch(Exception e){Console.Error.WriteLine(e);return 1;}
+    }
+    static void Protocol()
+    {
+        using var id=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Jorge Henrique");
+        using var other=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Outro");
+        var device=Guid.NewGuid().ToString();var v=new RequestVerifier([id.Public],device);
+        byte[] body=Encoding.UTF8.GetBytes("comando");string now=DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+        string nonce=Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
+        string sig=id.Sign("POST","/input",body,"session",now,nonce,device);
+        Check(v.Verify(id.Public.Id,device,"POST","/input",body,"session",now,nonce,sig)?.Name=="Jorge Henrique","assinatura autentica e nome aprovado");
+        Check(v.Verify(id.Public.Id,device,"POST","/input",body,"session",now,nonce,sig) is null,"replay rejeitado");
+        Check(v.Verify(other.Public.Id,device,"POST","/input",body,"session",now,nonce,sig) is null,"tecnico nao autorizado bloqueado");
+        nonce=Convert.ToHexString(RandomNumberGenerator.GetBytes(16));sig=id.Sign("POST","/input",body,"session",now,nonce,device);
+        Check(v.Verify(id.Public.Id,device,"POST","/input",Encoding.UTF8.GetBytes("alterado"),"session",now,nonce,sig) is null,"corpo alterado bloqueado");
+        Check(v.Verify(id.Public.Id,device,"POST","/session",body,"session",now,nonce,sig) is null,"rota alterada bloqueada");
+        Check(v.Verify(id.Public.Id,device,"POST","/input",body,"outro-token",now,nonce,sig) is null,"token alterado bloqueado");
+        Check(v.Verify(id.Public.Id,Guid.NewGuid().ToString(),"POST","/input",body,"session",now,nonce,sig) is null,"requisicao para outro computador bloqueada");
+        string old=(DateTimeOffset.UtcNow.ToUnixTimeSeconds()-120).ToString();sig=id.Sign("POST","/input",body,"session",old,nonce,device);
+        Check(v.Verify(id.Public.Id,device,"POST","/input",body,"session",old,nonce,sig) is null,"assinatura expirada bloqueada");
+        try{_=new RequestVerifier([],device);throw new Exception("politica vazia aceita");}catch(InvalidDataException){Console.WriteLine("OK: politica vazia bloqueada");}
+    }
+    static async Task Live(string fixture,string hostFile)
+    {
+        var d=Json.Read<Device>(hostFile);d.Validate();
+        var metadata=Json.Read<TechnicianKey>(Path.Combine(fixture,"tecnico.sdetech"));
+        using var id=TechnicianIdentity.FromPrivate(File.ReadAllBytes(Path.Combine(fixture,"private-test.pk8")),metadata.Name);
+        using var client=new RemoteClient(d,id);
+        bool ready=false;
+        for(int i=0;i<20;i++){try{using var response=await client.Request(HttpMethod.Get,"/info");ready=true;break;}catch{await Task.Delay(500);}}
+        Check(ready,"agente HTTPS responde sem dominio");
+        using(var wrongPin=new RemoteClient(d with{CertificateSha256=new string('0',64)},id))
+        {try{using var r=await wrongPin.Request(HttpMethod.Get,"/info");throw new Exception("certificado nao conferido");}catch(HttpRequestException){Console.WriteLine("OK: certificado diferente recusado");}}
+        using(var stranger=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Nao autorizado"))
+        using(var denied=new RemoteClient(d,stranger))
+        {try{using var r=await denied.Request(HttpMethod.Get,"/info");throw new Exception("nao autorizado aceito");}catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.Forbidden){Console.WriteLine("OK: tecnico nao autorizado recusado pelo agente real");}}
+        var targetReady=new TaskCompletionSource<(Form,TextBox)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread=new Thread(()=>{
+            ApplicationConfiguration.Initialize();
+            var form=new Form{Text="SDE Suporte - alvo do teste",Width=600,Height=300,TopMost=true,StartPosition=FormStartPosition.CenterScreen};
+            var input=new TextBox{Dock=DockStyle.Fill,Multiline=true};form.Controls.Add(input);
+            form.Shown+=(_,_)=>targetReady.SetResult((form,input));Application.Run(form);
+        });thread.SetApartmentState(ApartmentState.STA);thread.Start();
+        var (form,textbox)=await targetReady.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        try
+        {
+            await client.Start();Check(client.Session?.TechnicianName==metadata.Name,"sessao identifica tecnico aprovado");
+            using(var frame=await client.Request(HttpMethod.Get,"/frame"))
+            {var bytes=await frame.Content.ReadAsByteArrayAsync();Check(bytes.Length>1000&&bytes[0]==0xff&&bytes[1]==0xd8,"captura real da tela produz JPEG");}
+            form.Invoke(()=>{form.Activate();textbox.Focus();SetForegroundWindow(form.Handle);});await Task.Delay(500);
+            IntPtr handle=(IntPtr)form.Invoke(()=>form.Handle);
+            Check(GetForegroundWindow()==handle,"alvo exclusivo do teste em primeiro plano");
+            using(var command=await client.Request(HttpMethod.Post,"/input",new InputCommand("text",Text:"SDE-TEST-123"))){}
+            await Task.Delay(500);string value=(string)textbox.Invoke(()=>textbox.Text);
+            Check(value=="SDE-TEST-123","digitacao remota chega ao aplicativo de teste");
+            var oldSession=client.Session!;await client.Stop();
+            Check(client.Session is null,"encerramento da sessao");
+            try{using var r=await client.Request(HttpMethod.Get,"/frame");throw new Exception("frame sem sessao");}catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.Forbidden){Console.WriteLine("OK: tela bloqueada apos encerrar");}
+            using(var tokenClient=new HttpClient(new HttpClientHandler{ServerCertificateCustomValidationCallback=(_,cert,_,_)=>cert is not null&&Convert.ToHexString(SHA256.HashData(cert.RawData))==d.CertificateSha256}))
+            {
+                string time=DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(),nonce=Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
+                using var req=new HttpRequestMessage(HttpMethod.Get,$"https://{d.Host}:{d.Port}/frame");
+                req.Headers.Add("X-Device",d.Id);req.Headers.Add("X-Technician",id.Public.Id);req.Headers.Add("X-Time",time);req.Headers.Add("X-Nonce",nonce);req.Headers.Add("X-Session",oldSession.Id);
+                req.Headers.Add("X-Signature",id.Sign("GET","/frame",[],oldSession.Id,time,nonce,d.Id));
+                using var r=await tokenClient.SendAsync(req);Check(r.StatusCode==HttpStatusCode.Forbidden,"token antigo nao reabre sessao");
+            }
+        }
+        finally{try{await client.Stop();}catch{}form.Invoke(()=>form.Close());thread.Join(5000);}
+    }
+    [DllImport("user32.dll")]static extern bool SetForegroundWindow(IntPtr h);
+    [DllImport("user32.dll")]static extern IntPtr GetForegroundWindow();
+}

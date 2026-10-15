@@ -7,6 +7,7 @@ on:
       - 'scripts/**'
       - '.github/workflows/windows-build.yml'
       - 'installer/**'
+      - 'tests/**'
 permissions:
   contents: read
 jobs:
@@ -29,6 +30,9 @@ jobs:
       - name: Compilar os dois aplicativos
         shell: pwsh
         run: ./scripts/Build.ps1
+      - name: Testar autenticacao, HTTPS, captura e digitacao sem dominio
+        shell: pwsh
+        run: ./scripts/Test-Windows.ps1
       - name: Conferir assinaturas de executáveis PE
         shell: pwsh
         run: |
@@ -55,10 +59,26 @@ jobs:
           $process = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TYPE=technician',"/DIR=$target") -PassThru -Wait
           if ($process.ExitCode -ne 0) { throw "Instalação falhou: $($process.ExitCode)" }
           if (-not (Test-Path "$target\Technician\SDE-Suporte-Tecnico.exe")) { throw 'Console não instalado.' }
-          if (Test-Path "$target\package\dist\Agent\SDE-Suporte-Cliente.exe") { throw 'Agente instalado indevidamente na seleção de técnico.' }
+          if (Test-Path "$target\Agent\SDE-Suporte-Cliente.exe") { throw 'Agente instalado indevidamente na seleção de técnico.' }
           $uninstall = Start-Process "$target\unins000.exe" -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
           if ($uninstall.ExitCode -ne 0) { throw "Desinstalação falhou: $($uninstall.ExitCode)" }
           if (Test-Path "$target\Technician\SDE-Suporte-Tecnico.exe") { throw 'Console não removido.' }
+      - name: Testar selecao de agente sem arquivo de configuracao
+        shell: pwsh
+        run: |
+          $setup = (Resolve-Path release/SDE-Suporte-Instalador-Windows-x64.exe).Path
+          $target = Join-Path $env:RUNNER_TEMP 'SDE-Agente-Instalador'
+          $install = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TYPE=client',"/DIR=$target") -PassThru -Wait
+          if ($install.ExitCode -ne 0) { throw 'Falha na instalacao do agente.' }
+          if (-not (Test-Path "$target\Agent\SDE-Suporte-Cliente.exe")) { throw 'Agente ausente.' }
+          $agent = Start-Process "$target\Agent\SDE-Suporte-Cliente.exe" -PassThru
+          Start-Sleep -Seconds 3
+          $agent.Refresh()
+          if ($agent.HasExited) { throw 'Agente falhou ao abrir sem configuracao.' }
+          if ($agent.MainWindowTitle -notlike '*concluir instala*') { throw "Janela inesperada: $($agent.MainWindowTitle)" }
+          Stop-Process -Id $agent.Id -Force
+          $uninstall = Start-Process "$target\unins000.exe" -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
+          if ($uninstall.ExitCode -ne 0) { throw 'Falha ao desinstalar agente.' }
       - uses: actions/upload-artifact@v4
         with:
           name: SDE-Suporte-Windows-x64
@@ -66,6 +86,6 @@ jobs:
           path: |
             release/*.exe
             dist/
-            scripts/Install-Agent.ps1
-            scripts/Uninstall-Agent.ps1
+            scripts/*.ps1
             README.md
+

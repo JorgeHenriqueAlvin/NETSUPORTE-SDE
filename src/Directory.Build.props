@@ -5,3 +5,4 @@
   <DefaultItemExcludes>$(DefaultItemExcludes);obj\**;bin\**</DefaultItemExcludes>
  </PropertyGroup>
 </Project>
+
