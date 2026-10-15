@@ -96,7 +96,7 @@ sealed class FullScreenWindow:Form
     {
         Text="SDE Suporte — tela cheia";FormBorderStyle=FormBorderStyle.None;StartPosition=FormStartPosition.Manual;
         Bounds=Screen.FromControl(screen).Bounds;WindowState=FormWindowState.Maximized;BackColor=Color.Black;
-        var bar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=38,BackColor=Color.White};
+        var bar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=56,Padding=new Padding(6),BackColor=Color.White};
         var back=new Button{AutoSize=true,Text="Sair da tela cheia (F11)"};back.Click+=(_,_)=>exit();
         var messages=new Button{AutoSize=true,Text="Chat"};messages.Click+=(_,_)=>chat();
         var end=new Button{AutoSize=true,Text="Encerrar atendimento"};end.Click+=async(_,_)=>await disconnect();

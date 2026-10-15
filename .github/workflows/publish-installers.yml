@@ -41,6 +41,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          current_sha=$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq '.object.sha')
+          if [[ "$current_sha" != "$BUILD_SHA" ]]; then
+            echo 'Uma compilacao mais recente substituiu este resultado; publicacao ignorada.'
+            exit 0
+          fi
           cat > notes.md <<'NOTES'
           Dois instaladores Windows x64, sem dependência de domínio:
 

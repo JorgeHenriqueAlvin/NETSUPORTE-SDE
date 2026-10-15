@@ -50,7 +50,7 @@ sealed class Technician:Form
         Font=new Font("Segoe UI",10);BackColor=Color.White;DoubleBuffered=true;KeyPreview=false;
         var sidebar=new Panel{Dock=DockStyle.Left,Width=330,Padding=new Padding(8)};
         sidebar.Controls.Add(list);sidebar.Controls.Add(search);sidebar.Controls.Add(scanStatus);
-        var toolbar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=132,Padding=new Padding(10),AutoScroll=true};
+        var toolbar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=104,Padding=new Padding(10),AutoScroll=true};
         Button Add(string label,Func<Task> action){var b=new Button{Text=label,AutoSize=true};b.Click+=async(_,_)=>await Safe(action);toolbar.Controls.Add(b);return b;}
         Add("Atualizar máquinas",async()=>{if(discovery is not null)await discovery.Search();await ScanLocal();});
         Add("Varredura de IP",ChooseScan);
@@ -68,7 +68,7 @@ sealed class Technician:Form
         toolbar.Controls.Add(autoFullScreen);Add("Tela cheia (F11)",()=>{ToggleFullScreen();return Task.CompletedTask;});
         remotePage.Controls.Add(screen);chatPage.Controls.Add(chatPanel);
         var deploymentPage=new TabPage("Implantar Clientes");deploymentPage.Controls.Add(new DeploymentPanel());
-        tabs.TabPages.AddRange([remotePage,chatPage,noticesPage,deploymentPage]);
+        tabs.TabPages.AddRange([remotePage,chatPage,noticesPage,deploymentPage,UpdatesPage()]);
         var noticeHeader=new Label{Dock=DockStyle.Top,Height=65,Text="Envie um aviso de texto a todos os clientes online da lista, inclusive fora do filtro.\nO funcionário verá apenas “Aviso da TI”, sem o nome do remetente. Entrega não significa leitura.",Padding=new Padding(8)};
         noticesPage.Padding=new Padding(12);noticesPage.Controls.Add(noticeResults);noticesPage.Controls.Add(sendNotice);noticesPage.Controls.Add(noticeText);noticesPage.Controls.Add(noticeHeader);
         sendNotice.Click+=async(_,_)=>await Safe(Broadcast);
@@ -79,6 +79,8 @@ sealed class Technician:Form
         Premium.Apply(this);connect.BackColor=Color.FromArgb(45,105,230);connect.ForeColor=Color.White;
         status.Padding=new Padding(12,5,0,0);status.BackColor=Color.FromArgb(226,233,244);
         list.BorderStyle=BorderStyle.None;search.Margin=new Padding(8);
+        tabs.ItemSize=new Size(170,40);tabs.SizeMode=TabSizeMode.Fixed;
+        tabs.DrawMode=TabDrawMode.OwnerDrawFixed;tabs.DrawItem+=(_,e)=>{var selected=e.Index==tabs.SelectedIndex;using var fill=new SolidBrush(selected?Color.White:Color.FromArgb(230,236,246));e.Graphics.FillRectangle(fill,e.Bounds);TextRenderer.DrawText(e.Graphics,tabs.TabPages[e.Index].Text,Font,e.Bounds,selected?Color.FromArgb(45,105,230):Color.FromArgb(65,81,108),TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);if(selected){using var line=new Pen(Color.FromArgb(45,105,230),3);e.Graphics.DrawLine(line,e.Bounds.Left,e.Bounds.Bottom-2,e.Bounds.Right,e.Bounds.Bottom-2);}};
         var brand=new Label{Text="SDE  /  SUPORTE\nCentral de atendimento",Dock=DockStyle.Top,Height=70,Padding=new Padding(10),Font=new Font("Segoe UI Semibold",13),ForeColor=Color.White,BackColor=Color.FromArgb(18,30,50)};sidebar.Controls.Add(brand);
         search.TextChanged+=(_,_)=>Filter(search.Text);
         if(File.Exists(Path.Combine(folder,"computers.json")))devices.AddRange(Json.Read<Device[]>(Path.Combine(folder,"computers.json")));
@@ -114,6 +116,16 @@ sealed class Technician:Form
         screen.LostFocus+=async(_,_)=>{foreach(int k in held.ToArray())await Safe(()=>Input(new("keyUp",Key:k)));held.Clear();};
         FormClosing+=async(_,e)=>{if(closing)return;e.Cancel=true;closing=true;lifetime.Cancel();scanning?.Cancel();Enabled=false;try{await Disconnect();}catch{}finally{Close();}};
         FormClosed+=(_,_)=>{discovery?.Dispose();presence.Dispose();scanClock.Dispose();chatClock.Dispose();advanced.Dispose();if(dirty)SaveDevices();timer.Dispose();client?.Dispose();identity.Dispose();screen.Image?.Dispose();};
+    }
+    TabPage UpdatesPage()
+    {
+        var page=new TabPage("Atualizações");
+        var title=new Label{Dock=DockStyle.Top,Height=65,Text="Seu suporte sempre atualizado",Font=new Font("Segoe UI Semibold",19),Padding=new Padding(12)};
+        var description=new Label{Dock=DockStyle.Top,Height=160,Padding=new Padding(12),Text="Versão instalada: 0.9.0\n\nA atualização automática é habilitada pelo instalador. Novas versões são verificadas diariamente no GitHub e os pacotes passam por verificação de integridade.\n\nAs atualizações são instaladas quando Cliente e Técnico estão fechados, inclusive na próxima inicialização. A máquina precisa de acesso à internet para baixar as versões."};
+        var result=new TextBox{Dock=DockStyle.Fill,Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical};
+        var check=new Button{Dock=DockStyle.Top,Height=45,Text="Verificar nova versão"};
+        check.Click+=async(_,_)=>{check.Enabled=false;try{using var http=new HttpClient{Timeout=TimeSpan.FromSeconds(20)};using var data=JsonDocument.Parse(await http.GetStringAsync("https://github.com/JorgeHenriqueAlvin/NETSUPORTE-SDE/releases/latest/download/update.json"));string version=data.RootElement.GetProperty("version").GetString()??"";result.Text=Version.TryParse(version,out var next)&&next>new Version("0.9.0")?$"Versão {version} disponível. O atualizador fará a instalação automaticamente quando os aplicativos estiverem fechados.":"Você está usando a versão mais recente.";}catch(Exception){result.Text="Não foi possível consultar o GitHub. O suporte na rede local continua disponível; o atualizador tentará novamente depois.";}finally{if(!check.IsDisposed)check.Enabled=true;}};
+        page.Controls.Add(result);page.Controls.Add(check);page.Controls.Add(description);page.Controls.Add(title);return page;
     }
     void LoadTeamCredential()
     {

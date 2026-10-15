@@ -15,7 +15,18 @@ try {
     try { & "$fixture\scripts\Update-Sde.ps1" } catch { $rejected=$_.Exception.Message -like '*Integridade*' }
     if (!$rejected) { throw 'Pacote adulterado nao foi rejeitado.' }
     if (Test-Path "$fixture\UpdateCache\SDE-Suporte-Cliente-Instalar.exe") { throw 'Pacote adulterado permaneceu em cache.' }
-    $manifest.version='0.0.1'
+    # A valid, running application must defer an otherwise valid downloaded update.
+    $bytes=[IO.File]::ReadAllBytes("$fixture\Agent\SDE-Suporte-Cliente.exe")
+    $asset="$fixture\UpdateCache\SDE-Suporte-Cliente-Instalar.exe"
+    [IO.File]::WriteAllBytes($asset,$bytes)
+    $manifest.assets.'SDE-Suporte-Cliente-Instalar.exe'.sha256=(Get-FileHash $asset -Algorithm SHA256).Hash
+    $manifest.assets.'SDE-Suporte-Cliente-Instalar.exe'.size=$bytes.Length
+    $manifest | ConvertTo-Json -Depth 6 | Set-Content "$fixture\UpdateCache\update.json"
+    function Get-Process { param($Name,$ErrorAction) [pscustomobject]@{Id=123;ProcessName='SDE-Suporte-Cliente'} }
+    function Start-Process { throw 'O atualizador tentou interromper um aplicativo ativo.' }
+    & "$fixture\scripts\Update-Sde.ps1"
+    if ((Get-Content "$fixture\UpdateCache\update.log" -Raw) -notlike '*aguardando aplicativos fechados*') { throw 'Atualizacao nao foi adiada durante uso.' }
+    $manifest.version='0.0.1' 
     $manifest | ConvertTo-Json -Depth 6 | Set-Content "$fixture\UpdateCache\update.json"
     if (& "$fixture\scripts\Update-Sde.ps1" -CheckOnly) { throw 'Atualizador permitiu downgrade.' }
     Write-Host 'OK: nova versao detectada, downgrade ignorado e pacote adulterado bloqueado.'
