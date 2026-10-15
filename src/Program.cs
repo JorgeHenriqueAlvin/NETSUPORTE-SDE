@@ -25,7 +25,7 @@ static class Program
         catch (Exception e) { MessageBox.Show(e.Message, "SDE Suporte — falha ao iniciar"); }
     }
 }
-record Config(string Hostname, string Sector, string[] AllowedGroupSids, int Port = 7443, bool RequireConsent = true);
+record Config(string Hostname, string Sector, string[] AllowedGroupSids, int Port = 7443, bool RequireConsent = true, string[]? AllowedUserSids = null);
 record Session(string Id, string User, DateTimeOffset Expires, DateTimeOffset Started);
 record InputCommand(string Kind, int X = 0, int Y = 0, string Text = "");
 record Machine(string Hostname, string Sector);
@@ -56,8 +56,8 @@ sealed class Agent : Form
         Shown += (_,_) => Hide();
         config = JsonSerializer.Deserialize<Config>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"agent.json")))
             ?? throw new Exception("Configuração ausente.");
-        if (config.AllowedGroupSids.Length == 0) throw new Exception("Configure os SIDs dos grupos autorizados.");
-        foreach (var sid in config.AllowedGroupSids) _ = new SecurityIdentifier(sid);
+        if (config.AllowedGroupSids.Length == 0 && (config.AllowedUserSids?.Length ?? 0) == 0) throw new Exception("Configure pelo menos uma conta ou grupo autorizado.");
+        foreach (var sid in config.AllowedGroupSids.Concat(config.AllowedUserSids ?? [])) _ = new SecurityIdentifier(sid);
         var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"SdeSuporte");
         Directory.CreateDirectory(folder); log = Path.Combine(folder,"audit.jsonl");
         Controls.Add(status);
@@ -115,7 +115,9 @@ sealed class Agent : Form
             if (c.User?.Identity is not WindowsIdentity identity || !identity.IsAuthenticated)
             { await Reply(c.Response,401); return; }
             var principal = new WindowsPrincipal(identity);
-            if (!config.AllowedGroupSids.Any(s => principal.IsInRole(new SecurityIdentifier(s))))
+            var userAllowed = identity.User is not null && (config.AllowedUserSids ?? []).Contains(identity.User.Value, StringComparer.OrdinalIgnoreCase);
+            var groupAllowed = config.AllowedGroupSids.Any(s => principal.IsInRole(new SecurityIdentifier(s)));
+            if (!userAllowed && !groupAllowed)
             { Audit("denied",user); await Reply(c.Response,403); return; }
             var path = c.Request.Url!.AbsolutePath;
             var method = c.Request.HttpMethod;

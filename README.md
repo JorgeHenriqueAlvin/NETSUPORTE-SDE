@@ -1,4 +1,4 @@
-# SDE Suporte — desenvolvimento 0.2
+# SDE Suporte — desenvolvimento 0.3
 
 Projeto Windows nativo para atendimento na rede interna, com autenticação do domínio e autorização por grupo/setor em cada máquina. Entrega em código-fonte; NÃO inclui executável compilado, homologação Windows ou teste de carga. Não instalar nas 400 máquinas antes do piloto.
 
@@ -21,6 +21,12 @@ Não contém chat, transferência de arquivos, reinicialização, descoberta aut
 
 O agente roda sem elevação na sessão interativa, não como serviço. Não atende máquinas sem usuário conectado, bloqueadas ou com sessões simultâneas. Não contorna UAC. O funcionário não tem botões no agente; como o processo roda na sua conta, ainda pode encerrá-lo pelo Gerenciador de Tarefas. Bloqueio de encerramento não está implementado. Logs locais são evidência operacional do piloto, não auditoria inviolável. Para 400 máquinas, a próxima etapa é validar gerenciamento por GPO, centralização de logs e transporte de vídeo mais eficiente. Não há teste de capacidade para 400 conexões simultâneas.
 
+## Autorização sem grupos — versão 0.3
+
+Não é necessário criar grupos no domínio. Informe as contas em `-AllowedUsers 'SICM\jorge.alvin'`. Para vários técnicos, use uma lista PowerShell: `-AllowedUsers 'SICM\jorge.alvin','SICM\OUTRO_LOGIN_REAL'`. Substitua o segundo login pelo real; ele não está autorizado previamente.
+
+A lista é aplicada por computador/setor durante a instalação, e a autorização compara o SID da conta autenticada, não um nome enviado pelo console. Remover o SID da política e reiniciar o agente revoga novas solicitações dessa conta. O aplicativo não modifica o Active Directory. A conta Jorge somente terá acesso nas máquinas onde for explicitamente incluída pela instalação; esta atualização não instala nem concede permissões nas máquinas da empresa remotamente.
+
 ## Domínio confirmado da empresa
 
 - Domínio Windows: `SICM`.
@@ -34,7 +40,7 @@ O agente roda sem elevação na sessão interativa, não como serviço. Não ate
 
 1. Escolha duas máquinas piloto Windows x64, no domínio, uma do técnico e outra do funcionário. Use versões Windows homologadas pela TI.
 2. Tenha o SDK .NET 10 na máquina de compilação (https://dotnet.microsoft.com/download/dotnet/10.0). A compilação inicial precisa baixar componentes; os executáveis publicados serão autocontidos.
-3. Crie um grupo de segurança AD para o setor, por exemplo `SICM\SDE-Suporte-CMTIC`, e adicione somente os técnicos autorizados. Funcionários comuns NÃO devem pertencer a esse grupo. Após mudar grupos, faça logoff/login do técnico para renovar o token.
+3. Sem grupos, use contas individuais em `-AllowedUsers`, por exemplo `SICM\jorge.alvin`. O instalador resolve a conta para seu SID no domínio e grava esse identificador na política protegida da máquina. Opcionalmente, `-AllowedGroups` continua disponível. Uma conta comum do domínio não recebe acesso automaticamente.
 4. Emita pela CA interna um certificado de servidor para cada agente, com SAN igual ao FQDN e EKU Server Authentication, instalado em LocalMachine\My com chave privada. O computador do técnico deve confiar na CA e resolver o FQDN pelo DNS interno.
 5. Anote a sub-rede real dos técnicos. Não abra porta no roteador nem publique o agente na internet.
 6. A atribuição de setor é da máquina: usuários podem alternar seus logins sem mudar os grupos autorizados no agente.
@@ -57,7 +63,7 @@ Copie o projeto com `dist` para essa máquina. No PowerShell como administrador,
 .\scripts\Install-Agent.ps1 `
   -Hostname 'pc-piloto.SICM.INTRANET' `
   -Sector 'CMTIC' `
-  -AllowedGroups 'SICM\SDE-Suporte-CMTIC' `
+  -AllowedUsers 'SICM\jorge.alvin' `
   -CertificateThumbprint 'IMPRESSAO_DIGITAL_REAL_DO_CERTIFICADO' `
   -TechnicianSubnets '10.0.10.0/24' `
   -AuthorizedUnattended

@@ -4,7 +4,8 @@
 param(
  [Parameter(Mandatory)][string]$Hostname,
  [Parameter(Mandatory)][string]$Sector,
- [Parameter(Mandatory)][string[]]$AllowedGroups,
+ [string[]]$AllowedGroups = @(),
+ [string[]]$AllowedUsers = @(),
  [Parameter(Mandatory)][string]$CertificateThumbprint,
  [Parameter(Mandatory)][string[]]$TechnicianSubnets,
  [switch]$AuthorizedUnattended
@@ -16,8 +17,9 @@ $thumb = $CertificateThumbprint.Replace(' ','')
 $cert = Get-Item "Cert:\LocalMachine\My\$thumb"
 if (-not $cert.HasPrivateKey -or $cert.NotAfter -lt (Get-Date)) { throw 'Certificado expirado ou sem chave privada.' }
 if ($Hostname -notin @($cert.DnsNameList | ForEach-Object { $_.Unicode })) { throw 'O SAN do certificado deve conter o FQDN exato.' }
+$userSids = @($AllowedUsers | ForEach-Object { ([System.Security.Principal.NTAccount]::new($_)).Translate([System.Security.Principal.SecurityIdentifier]).Value })
 $sids = @($AllowedGroups | ForEach-Object { ([System.Security.Principal.NTAccount]::new($_)).Translate([System.Security.Principal.SecurityIdentifier]).Value })
-if ($sids.Count -eq 0) { throw 'Informe pelo menos um grupo de técnicos do domínio.' }
+if ($sids.Count -eq 0 -and $userSids.Count -eq 0) { throw 'Informe pelo menos uma conta em AllowedUsers ou um grupo em AllowedGroups.' }
 $root = Split-Path $PSScriptRoot -Parent
 $exe = "$root\dist\Agent\SDE-Suporte-Cliente.exe"
 if (-not (Test-Path $exe)) { throw 'Execute Build.ps1 primeiro.' }
@@ -27,7 +29,7 @@ New-Item $target -ItemType Directory -Force | Out-Null
 & icacls.exe $target /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Não foi possível proteger a pasta.' }
 Copy-Item $exe "$target\SDE-Suporte-Cliente.exe" -Force
-@{ Hostname=$Hostname; Sector=$Sector; AllowedGroupSids=$sids; Port=7443; RequireConsent=(-not $AuthorizedUnattended.IsPresent) } | ConvertTo-Json | Set-Content "$target\agent.json" -Encoding UTF8
+@{ Hostname=$Hostname; Sector=$Sector; AllowedGroupSids=$sids; AllowedUserSids=$userSids; Port=7443; RequireConsent=(-not $AuthorizedUnattended.IsPresent) } | ConvertTo-Json | Set-Content "$target\agent.json" -Encoding UTF8
 $interactive = ([System.Security.Principal.SecurityIdentifier]::new('S-1-5-4')).Translate([System.Security.Principal.NTAccount]).Value
 & netsh.exe http add urlacl "url=https://${Hostname}:7443/" "user=$interactive"
 if ($LASTEXITCODE -ne 0) { throw 'URL já reservada ou erro. Inspecione netsh http show urlacl antes de alterar reservas existentes.' }
