@@ -99,6 +99,7 @@ public sealed class RemoteClient : IDisposable
     readonly HttpClient http;
     readonly TechnicianIdentity identity;
     readonly string deviceId;
+    public string DeviceId=>deviceId;
     public RemoteSession? Session {get;private set;}
     public RemoteClient(Device device,TechnicianIdentity identity,TimeSpan? timeout=null)
     {

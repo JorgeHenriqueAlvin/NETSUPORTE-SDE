@@ -11,7 +11,7 @@ sealed class Technician:Form
     readonly TabPage chatPage=new("Chat do atendimento");
     readonly TabPage noticesPage=new("Avisos globais");
     readonly MessagePanel chatPanel=new();
-    readonly TextBox noticeText=new(){Dock=DockStyle.Top,Multiline=true,Height=140,MaxLength=2000,ScrollBars=ScrollBars.Vertical};
+    readonly TextBox noticeText=new(){Dock=DockStyle.Top,Multiline=true,Height=100,MaxLength=2000,ScrollBars=ScrollBars.Vertical};
     readonly CheckedListBox noticeTargets=new(){Dock=DockStyle.Left,Width=270,CheckOnClick=true};
     readonly ListBox noticeResults=new(){Dock=DockStyle.Fill,HorizontalScrollbar=true};
     string? noticeImage;
@@ -79,7 +79,7 @@ sealed class Technician:Form
         remotePage.Controls.Add(screen);remotePage.Controls.Add(monitorBar);chatPage.Controls.Add(chatPanel);
         var deploymentPage=new TabPage("Implantar Clientes");deploymentPage.Controls.Add(new DeploymentPanel());
         tabs.TabPages.AddRange([remotePage,chatPage,noticesPage,deploymentPage,UpdatesPage()]);
-        var noticeHeader=new Label{Dock=DockStyle.Top,Height=65,Text="Marque os clientes ou use Selecionar todos. Envie texto, foto ou os dois.\nO funcionário verá apenas “Aviso da TI”, sem o nome do remetente. Entrega não significa leitura.",Padding=new Padding(8)};
+        var noticeHeader=new Label{Dock=DockStyle.Top,Height=100,Text="Marque os clientes ou use Selecionar todos. Envie texto, foto ou os dois.\nO funcionário verá apenas “Aviso da TI”, sem o nome do remetente. Entrega não significa leitura.",Padding=new Padding(8)};
         noticesPage.Padding=new Padding(12);noticesPage.Controls.Add(noticeResults);noticesPage.Controls.Add(noticeTargets);noticesPage.Controls.Add(sendNotice);noticesPage.Controls.Add(noticeText);noticesPage.Controls.Add(noticePreview);
         var photoBar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=45};
         var attach=new Button{Text="Adicionar foto",AutoSize=true};var removePhoto=new Button{Text="Remover foto",AutoSize=true};
@@ -295,7 +295,7 @@ sealed class Technician:Form
     {
         if(client?.Session is null||loading)return;
         var active=client;var requestedMonitor=selectedMonitor;loading=true;
-        try{using var r=await active.Request(HttpMethod.Get,"/frame?monitor="+Uri.EscapeDataString(requestedMonitor));using var stream=await r.Content.ReadAsStreamAsync();using var image=Image.FromStream(stream);var old=screen.Image;if(ReferenceEquals(client,active)&&active.Session is not null){screen.Image=new Bitmap(image);old?.Dispose();
+        try{using var r=await active.Request(HttpMethod.Get,"/frame?monitor="+Uri.EscapeDataString(requestedMonitor));using var stream=await r.Content.ReadAsStreamAsync();using var image=Image.FromStream(stream);var old=screen.Image;if(ReferenceEquals(client,active)&&active.Session is not null){screen.Image=new Bitmap(image);old?.Dispose();online[active.DeviceId]=DateTimeOffset.UtcNow;
                 frameOffsetX=HeaderInt(r,"X-SDE-Offset-X");frameOffsetY=HeaderInt(r,"X-SDE-Offset-Y");
                 frameLayout=r.Headers.TryGetValues("X-SDE-Monitors",out var layout)?layout.First():"";
                 RefreshMonitors(r,requestedMonitor);}}
