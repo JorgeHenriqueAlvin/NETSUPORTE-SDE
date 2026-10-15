@@ -22,7 +22,7 @@ sealed class Agent:Form
     readonly Dictionary<string,DateTimeOffset> announcementIds=[];
     readonly Dictionary<string,DateTimeOffset> lastAnnouncement=[];
     DateTimeOffset activity;
-    bool unavailable;
+    bool unavailable,capturing;
     readonly HashSet<int> heldKeys=[];
     readonly HashSet<int> heldMouse=[];
     public Agent(string path)
@@ -84,7 +84,7 @@ sealed class Agent:Form
     async Task Handle(HttpListenerContext c)
     {
         if(!await serial.WaitAsync(0)){try{await Reply(c.Response,429,new{error="Agente ocupado. Tente novamente."});}catch{}finally{c.Response.Close();}return;}
-        bool locked=true;
+        bool locked=true,ownsFrame=false;
         string user="não autenticado";
         try
         {
@@ -159,6 +159,8 @@ sealed class Agent:Form
             }
             if(path=="/frame"&&method=="GET")
             {
+                if(capturing){await Reply(c.Response,429,new{error="Captura em andamento."});return;}
+                capturing=true;ownsFrame=true;
                 var bounds=SystemInformation.VirtualScreen;
                 using var bmp=new Bitmap(bounds.Width,bounds.Height);using var graphics=Graphics.FromImage(bmp);
                 graphics.CopyFromScreen(bounds.Location,Point.Empty,bounds.Size);
@@ -182,7 +184,7 @@ sealed class Agent:Form
             await Reply(c.Response,404,new{error="Operação inexistente."});
         }
         catch(Exception e){try{Audit("error",user,e.GetType().Name);await Reply(c.Response,500,new{error=e.Message});}catch{}}
-        finally{c.Response.Close();if(locked)serial.Release();}
+        finally{c.Response.Close();if(ownsFrame)capturing=false;if(locked)serial.Release();}
     }
 }
 sealed class Consent:Form
