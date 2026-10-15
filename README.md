@@ -1,4 +1,4 @@
-# SDE Suporte 0.6.1 — técnico autorizado sem código
+# SDE Suporte 0.7.0 — tela cheia, chat e avisos globais
 
 Suporte remoto interno com dois instaladores: **Técnico** e **Cliente**. Não exige Active Directory, domínio, servidor externo ou exportação de identificações entre computadores.
 
@@ -13,7 +13,11 @@ Suporte remoto interno com dois instaladores: **Técnico** e **Cliente**. Não e
 
 A autorização é criada na conta Windows que iniciou a instalação, usando a chave pessoal não exportável dessa conta. Nos próximos acessos, o atalho abre normalmente. O instalador não precisa permanecer no computador depois da primeira abertura bem-sucedida do console.
 
-Clientes **0.6 continuam compatíveis** e não precisam ser reinstalados por esta mudança. Clientes 0.5 ou anteriores precisam receber o instalador Cliente atualizado uma vez.
+Atualize os dois instaladores para **0.7.0** para usar chat e avisos. Clientes 0.6 continuam compatíveis com o atendimento básico, mas o console indica quando é necessário atualizar para as novas funções.
+
+Ao conectar, a visualização abre em tela cheia (opção desmarcável); **F11** ou o botão superior retorna à janela. Há abas **Tela remota**, **Chat do atendimento** e **Avisos globais**. O funcionário responde em uma janela própria de chat, sem receber o console de administração. Os avisos globais são enviados aos Clientes online conhecidos pelo console, com prévia/confirmacão e resultado por máquina; não existe fila central para máquinas desligadas ou não descobertas.
+
+O Cliente inicia automaticamente ao entrar no Windows, por uma entrada HKLM Run para todas as contas. A instalação verifica essa entrada; atualizar o Cliente também a reaplica. Não há agente ativo antes do login.
 
 O funcionário vê um ícone de disponibilidade e, durante o atendimento, o nome do técnico e o horário de início. Ele não recebe o console de administração.
 
@@ -47,11 +51,11 @@ A descoberta HTTPS transporta apenas identificação pública assinada. Antes de
 
 ## Funções e limites atuais
 
-Implementado: lista automática, varredura por IP, filtro, estado de conexão, visualização da área de trabalho, mouse, arraste, roda, teclado, envio de texto, aviso de técnico e logs locais de início/fim/erros. Existe uma sessão por computador, com expiração e encerramento ao bloquear ou desconectar a área de trabalho.
+Implementado: lista automática, varredura por IP, filtro, estado de conexão, visualização da área de trabalho, mouse, arraste, roda, teclado, envio de texto, aviso de técnico, tela cheia, chat bidirecional, avisos globais autenticados e logs locais de início/fim/erros/recebimento de mensagens. Existe uma sessão por computador, com expiração e encerramento ao bloquear ou desconectar a área de trabalho.
 
 O agente funciona **na sessão do funcionário**. É necessário estar conectado ao Windows e com a área de trabalho desbloqueada. Não controla login, tela bloqueada ou a área protegida do UAC; aplicações elevadas podem recusar entrada de um agente sem elevação. Não é um serviço do Windows. Um usuário local pode encerrá-lo pelo Gerenciador de Tarefas.
 
-Ainda não há transferência de arquivos, chat, inventário completo, impressão remota, gravação de sessão ou auditoria centralizada. Não há equivalência integral ao NetSupport nem assinatura Authenticode dos instaladores.
+Ainda não há transferência de arquivos, inventário completo, impressão remota, gravação de sessão ou auditoria centralizada. Não há equivalência integral ao NetSupport nem assinatura Authenticode dos instaladores.
 
 ## Compilar e verificar
 
@@ -70,3 +74,9 @@ O workflow Windows compila aplicativos autocontidos, verifica assinaturas e reje
 O pacote público contém o Cliente, o modelo Técnico-Base e as instruções. O instalador Técnico-Autorizado é gerado privadamente com scripts/Authorize-Technician-Installer.py e entregue apenas à TI. O script recebe caminhos de arquivos, verifica a autorização da equipe e não imprime os dados privados.
 
 Os testes verificam o instalador personalizado no Windows, a autorização automática de seis perfis, a preservação da identidade ao reinstalar, a conexão real de um perfil provisionado automaticamente e a rejeição de instaladores adulterados ou de outra equipe.
+
+## Protocolo de mensagens
+
+Chat e avisos usam o mesmo HTTPS com pinagem e assinatura de cada requisição. `POST /announcement` aceita apenas técnico autorizado, sem iniciar sessão de controle, com identificador idempotente, limite de três segundos entre novos avisos por técnico e um único painel de avisos reutilizado. A confirmação é de recebimento pelo agente, não de leitura pelo funcionário. `GET/POST /chat` exige a sessão ativa vinculada ao técnico e ao dispositivo. Os nomes são obtidos da credencial verificada e do usuário Windows, nunca de um campo remetente enviado livremente.
+
+As mensagens são texto simples de até 2.000 caracteres; o chat mantém até 200 mensagens em memória por atendimento e é limpo ao encerrar. O funcionário só pode responder durante o atendimento. O agente registra eventos de envio/recebimento no log, sem guardar o conteúdo do chat no arquivo de auditoria. Os avisos podem chegar a um agente em sessão bloqueada e ficar visíveis após desbloquear; isso não autoriza captura ou entrada na tela bloqueada.

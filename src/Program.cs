@@ -34,7 +34,9 @@ static class Program
             Application.Run(new Technician());
 #endif
         }
-        catch(Exception e){MessageBox.Show("Não foi possível iniciar.\n"+e.Message,"SDE Suporte",MessageBoxButtons.OK,MessageBoxIcon.Error);}
+        catch(Exception e){
+            try{var logs=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"SdeSuporte","logs");Directory.CreateDirectory(logs);File.WriteAllText(Path.Combine(logs,"startup-error.txt"),DateTimeOffset.Now+"\n"+e);}catch{}
+            MessageBox.Show("Não foi possível iniciar.\n"+e.Message,"SDE Suporte",MessageBoxButtons.OK,MessageBoxIcon.Error);}
     }
 }
 sealed class MissingSetup:Form
@@ -49,7 +51,9 @@ sealed class MissingSetup:Form
             var script=Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,"..","scripts","Configure-Agent.ps1"));
             if(!File.Exists(script)){MessageBox.Show("Execute SDE-Suporte-Instalador-Windows-x64.exe para instalar o agente.");return;}
             try{Process.Start(new ProcessStartInfo("powershell.exe",$"-NoProfile -ExecutionPolicy Bypass -File \"{script}\""){UseShellExecute=true,Verb="runas"});Close();}
-            catch(Exception e){MessageBox.Show(e.Message);}
+            catch(Exception e){
+            try{var logs=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"SdeSuporte","logs");Directory.CreateDirectory(logs);File.WriteAllText(Path.Combine(logs,"startup-error.txt"),DateTimeOffset.Now+"\n"+e);}catch{}
+            MessageBox.Show(e.Message);}
         };
     }
 }

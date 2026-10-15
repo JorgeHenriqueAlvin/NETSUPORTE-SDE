@@ -28,7 +28,7 @@ static class Tests
                 else Json.Write(Path.Combine(args[1],"deployment.json"),Enrollment.Create(id,[],"Teste"));
                 Json.Write(Path.Combine(args[1],"tecnico.sdetech"),id.Public);File.WriteAllBytes(Path.Combine(args[1],"private-test.pk8"),id.ExportPrivate());return 0;
             }
-            if(args[0]=="protocol") {Protocol();EnrollmentTests();TeamTests();RangeTests();TechnicianSetupTests();return 0;}
+            if(args[0]=="protocol") {Protocol();EnrollmentTests();TeamTests();RangeTests();MessagingTests();TechnicianSetupTests();return 0;}
             if(args[0]=="template"){InstallerPackage.CreateTemplate(args[1],args[2],args[3]);return 0;}
             if(args[0]=="package"){using var creator=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Preparador");InstallerPackage.Personalize(args[1],args[2],Enrollment.Create(creator,[],"Teste"));return 0;}
             if(args[0]=="live-team"){await LiveTeam(args[1],args[2]);return 0;}
@@ -40,6 +40,74 @@ static class Tests
             }
             await Live(args[1],args[2]);return 0;
         }catch(Exception e){Console.Error.WriteLine(e);return 1;}
+    }
+    static void MessagingTests()
+    {
+        var history=new MessageHistory();
+        for(int i=0;i<205;i++)history.Add("Funcionário","Mensagem "+i);
+        Check(history.After(0).Messages.Length==200&&history.After(204).Messages.Single().Sequence==205,"historico limitado preserva sequencia e cursor");
+        foreach(var value in new[]{"","   ",new string('a',2001),"texto\0oculto"})
+        {try{MessageHistory.Validate(value);throw new Exception("mensagem invalida aceita");}catch(ArgumentException){Console.WriteLine("OK: mensagem vazia, excessiva ou de controle rejeitada");}}
+        Check(MessageHistory.Validate("  texto\nlinha  ")=="texto\nlinha","mensagens aceitam texto simples e linhas");
+        Exception? error=null;
+        var thread=new Thread(()=>{
+            try
+            {
+                ApplicationConfiguration.Initialize();
+                using var owner=new Form{Width=800,Height=600};var display=new RemoteScreen{Dock=DockStyle.Fill};owner.Controls.Add(display);owner.Show();
+                using(var full=new FullScreenWindow(display,()=>{},()=>{},()=>Task.CompletedTask))
+                {
+                    full.Show(owner);Application.DoEvents();
+                    Check(display.Parent==full&&full.FormBorderStyle==FormBorderStyle.None&&full.WindowState==FormWindowState.Maximized,"visualizacao ocupa tela cheia mantendo superficie remota");
+                    owner.Controls.Add(display);full.Close();
+                }
+                Check(!display.IsDisposed&&display.Parent==owner,"superficie remota preservada ao voltar da tela cheia");
+                using var chat=new MessagePanel();owner.Controls.Add(chat);chat.BringToFront();chat.SetAvailable(true);
+                string? sent=null;chat.Send=value=>{sent=value;return Task.CompletedTask;};
+                var composer=chat.Controls.OfType<Panel>().Single();composer.Controls.OfType<TextBox>().Single().Text="Resposta do funcionário";
+                composer.Controls.OfType<Button>().Single().PerformClick();Application.DoEvents();
+                Check(sent=="Resposta do funcionário","interface permite resposta do funcionario sem console tecnico");
+                owner.Close();
+            }catch(Exception e){error=e;}
+        });thread.SetApartmentState(ApartmentState.STA);thread.Start();thread.Join();if(error is not null)throw error;
+    }
+    static async Task MessagingLive(RemoteClient client,Device device,TechnicianIdentity identity)
+    {
+        using(var sent=await client.Request(HttpMethod.Post,"/chat",new MessageText("Olá, funcionário <texto simples>"))){}
+        using(var response=await client.Request(HttpMethod.Get,"/chat?after=0"))
+        {
+            var page=JsonSerializer.Deserialize<ChatPage>(await response.Content.ReadAsStringAsync(),Json.Options)!;
+            Check(page.Messages.Single().Sender==identity.Public.Name&&page.Messages.Single().Text.Contains("<texto simples>"),"chat real preserva nome autenticado e texto simples");
+        }
+        IntPtr window=FindWindow(null,"SDE Suporte — mensagens");Check(window!=IntPtr.Zero,"chat do funcionario aparece ao receber mensagem");
+        IntPtr input=IntPtr.Zero,send=IntPtr.Zero;
+        EnumChildWindows(window,(child,_)=>{
+            var className=new StringBuilder(256);GetClassName(child,className,256);
+            if(className.ToString().StartsWith("WindowsForms10.EDIT"))input=child;
+            var title=new StringBuilder(256);GetWindowText(child,title,256);if(title.ToString()=="Enviar")send=child;return true;
+        },IntPtr.Zero);
+        Check(input!=IntPtr.Zero&&send!=IntPtr.Zero,"campos de resposta do funcionario disponiveis");
+        SendText(input,0x000C,IntPtr.Zero,"Resposta do funcionário");SendClick(send,0x00F5,IntPtr.Zero,IntPtr.Zero);
+        using(var response=await client.Request(HttpMethod.Get,"/chat?after=1"))
+        {
+            var page=JsonSerializer.Deserialize<ChatPage>(await response.Content.ReadAsStringAsync(),Json.Options)!;
+            Check(page.Messages.Single().Text=="Resposta do funcionário"&&page.Messages.Single().Sender==Environment.UserName,"resposta real do funcionario chega ao tecnico pelo chat");
+        }
+        using var otherSession=new RemoteClient(device,identity);
+        try{using var response=await otherSession.Request(HttpMethod.Get,"/chat");throw new Exception("chat sem token aceito");}
+        catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.Forbidden){Console.WriteLine("OK: chat exige token do atendimento ativo");}
+        var notice=new AnnouncementRequest(Guid.NewGuid().ToString(),"Aviso geral de teste");
+        using(var response=await otherSession.Request(HttpMethod.Post,"/announcement",notice))Check(response.IsSuccessStatusCode,"aviso global autenticado funciona sem iniciar atendimento");
+        using(var duplicate=await otherSession.Request(HttpMethod.Post,"/announcement",notice))
+        using(var payload=JsonDocument.Parse(await duplicate.Content.ReadAsStringAsync()))Check(payload.RootElement.GetProperty("duplicate").GetBoolean(),"reenvio do mesmo aviso nao duplica janela ou mensagem");
+        try{using var response=await otherSession.Request(HttpMethod.Post,"/announcement",notice with{Id=Guid.NewGuid().ToString()});throw new Exception("rajada aceita");}
+        catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.TooManyRequests){Console.WriteLine("OK: limite entre avisos impede rajadas");}
+        using var stranger=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Não autorizado");
+        using var denied=new RemoteClient(device,stranger);
+        try{using var response=await denied.Request(HttpMethod.Post,"/announcement",notice);throw new Exception("aviso nao autorizado aceito");}
+        catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.Forbidden){Console.WriteLine("OK: aviso global de tecnico sem autorizacao bloqueado");}
+        try{using var response=await client.Request(HttpMethod.Post,"/chat",new MessageText(new string('x',2001)));throw new Exception("chat excessivo aceito");}
+        catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.BadRequest){Console.WriteLine("OK: tamanho de mensagem validado no agente");}
     }
     static void TechnicianSetupTests()
     {
@@ -250,7 +318,12 @@ static class Tests
             using(var command=await client.Request(HttpMethod.Post,"/input",new InputCommand("text",Text:"SDE-TEST-123"))){}
             await Task.Delay(500);string value=(string)textbox.Invoke(()=>textbox.Text);
             Check(value=="SDE-TEST-123","digitacao remota chega ao aplicativo de teste");
+            await MessagingLive(client,d,id);
             var oldSession=client.Session!;await client.Stop();
+            await client.Start();
+            using(var cleared=await client.Request(HttpMethod.Get,"/chat"))
+            {var page=JsonSerializer.Deserialize<ChatPage>(await cleared.Content.ReadAsStringAsync(),Json.Options)!;Check(page.Messages.Length==0,"novo atendimento nao recebe conversa da sessao anterior");}
+            await client.Stop();
             Check(client.Session is null,"encerramento da sessao");
             try{using var r=await client.Request(HttpMethod.Get,"/frame");throw new Exception("frame sem sessao");}catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.Forbidden){Console.WriteLine("OK: tela bloqueada apos encerrar");}
             using(var tokenClient=new HttpClient(new HttpClientHandler{ServerCertificateCustomValidationCallback=(_,cert,_,_)=>cert is not null&&Convert.ToHexString(SHA256.HashData(cert.RawData))==d.CertificateSha256}))
@@ -264,6 +337,13 @@ static class Tests
         }
         finally{try{await client.Stop();}catch{}form.Invoke(()=>form.Close());thread.Join(5000);}
     }
+    delegate bool WindowCallback(IntPtr window,IntPtr parameter);
+    [DllImport("user32.dll",CharSet=CharSet.Unicode)]static extern IntPtr FindWindow(string? className,string? windowName);
+    [DllImport("user32.dll")]static extern bool EnumChildWindows(IntPtr window,WindowCallback callback,IntPtr parameter);
+    [DllImport("user32.dll",CharSet=CharSet.Unicode)]static extern int GetClassName(IntPtr window,StringBuilder text,int count);
+    [DllImport("user32.dll",CharSet=CharSet.Unicode)]static extern int GetWindowText(IntPtr window,StringBuilder text,int count);
+    [DllImport("user32.dll",EntryPoint="SendMessageW",CharSet=CharSet.Unicode)]static extern IntPtr SendText(IntPtr window,int message,IntPtr parameter,string text);
+    [DllImport("user32.dll",EntryPoint="SendMessageW")]static extern IntPtr SendClick(IntPtr window,int message,IntPtr first,IntPtr second);
     [DllImport("user32.dll")]static extern bool SetForegroundWindow(IntPtr h);
     [DllImport("user32.dll")]static extern IntPtr GetForegroundWindow();
 }

@@ -1,4 +1,4 @@
-# SDE Suporte 0.6.1 — instalar e conectar
+# SDE Suporte 0.7.0 — instalar e conectar
 
 ## Nos computadores dos técnicos
 
@@ -17,7 +17,17 @@ O nome exibido ao funcionário é o nome do perfil de técnico existente ou, em 
 2. Conclua a instalação. A configuração é automática.
 3. O agente inicia após a instalação interativa e nos próximos logins do Windows.
 
-Clientes da versão **0.6 continuam funcionando** com os novos técnicos, sem reinstalação. Somente clientes 0.5 ou anteriores precisam receber o novo instalador Cliente uma vez.
+Para usar chat e avisos, atualize também os Clientes para **0.7.0**, executando o novo instalador por cima da instalação existente. O atendimento básico continua compatível com Clientes 0.6, mas as novas abas exigem Cliente atualizado.
+
+O início automático vale para todas as contas e ocorre **ao entrar no Windows após ligar/reiniciar a máquina**. Não exige abrir o aplicativo manualmente. Antes do login, a área de trabalho do funcionário ainda não existe; esta versão não é um serviço de acesso à tela de login.
+
+## Tela cheia, chat e avisos
+
+- Ao conectar, a tela remota abre em tela cheia. Use **F11** ou **Sair da tela cheia** para voltar. Desmarque **Abrir em tela cheia** para conectar em janela.
+- Na aba **Chat do atendimento**, envie mensagens ao funcionário. Ele responde pela janela de mensagens do Cliente, sem acesso ao console de técnicos. O ícone do Cliente permite reabrir o chat do atendimento ativo.
+- Na aba **Avisos globais**, escreva o comunicado e clique em **Enviar aviso aos clientes online**. Confira a prévia e confirme o envio. Todos os Clientes online conhecidos pelo console recebem, inclusive os que ficaram fora do filtro de pesquisa.
+- O resultado informa cada máquina que recebeu, falhou ou precisa de atualização. Entrega ao agente não comprova leitura. Máquinas desligadas ou ainda não descobertas não recebem aviso; não há fila central.
+- O aviso mostra o técnico remetente e não inicia controle remoto. Cada conversa fica restrita ao atendimento atual e é encerrada com ele. São aceitos textos de até 2.000 caracteres.
 
 ## Buscar outra rede ou faixa
 

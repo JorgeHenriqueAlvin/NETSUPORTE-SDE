@@ -1,4 +1,4 @@
-#define AppVersion "0.6.1"
+#define AppVersion "0.7.0"
 #ifndef SetupRole
   #define SetupRole "combined"
 #endif
@@ -66,6 +66,9 @@ Source: "..\QUICKSTART.md"; DestDir: "{app}"; Flags: ignoreversion
 #if SetupRole != "client"
 Name: "{group}\SDE Suporte - Técnico"; Filename: "{app}\Technician\SDE-Suporte-Tecnico.exe"{#TechnicianComponent}
 Name: "{autodesktop}\SDE Suporte - Técnico"; Filename: "{app}\Technician\SDE-Suporte-Tecnico.exe"{#TechnicianComponent}
+#endif
+#if SetupRole != "technician"
+Name: "{group}\SDE Suporte - Cliente"; Filename: "{app}\Agent\SDE-Suporte-Cliente.exe"{#ClientComponent}
 #endif
 Name: "{group}\Instruções"; Filename: "{app}\QUICKSTART.md"
 [Run]

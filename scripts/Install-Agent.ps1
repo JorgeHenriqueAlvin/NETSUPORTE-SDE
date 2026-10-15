@@ -71,6 +71,8 @@ $utf8=New-Object System.Text.UTF8Encoding($false)
 [IO.File]::WriteAllText($ExportPath,($device | ConvertTo-Json -Depth 5),$utf8)
 if (-not $NoStartup) {
  New-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name SdeSuporte -Value "`"$exe`"" -PropertyType String -Force | Out-Null
+ $startup=(Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name SdeSuporte).SdeSuporte
+ if($startup -ne "`"$exe`""){throw 'Nao foi possivel ativar o inicio automatico do Cliente no Windows.'}
 }
 $sha.Dispose()
 Write-Host "Agente configurado. Arquivo do computador: $ExportPath"

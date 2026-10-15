@@ -6,6 +6,19 @@ sealed class Technician:Form
     readonly string folder=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"SdeSuporte");
     readonly List<Device> devices=[];
     readonly ListBox list=new(){Dock=DockStyle.Fill};
+    readonly TabControl tabs=new(){Dock=DockStyle.Fill};
+    readonly TabPage remotePage=new("Tela remota");
+    readonly TabPage chatPage=new("Chat do atendimento");
+    readonly TabPage noticesPage=new("Avisos globais");
+    readonly MessagePanel chatPanel=new();
+    readonly TextBox noticeText=new(){Dock=DockStyle.Top,Multiline=true,Height=140,MaxLength=2000,ScrollBars=ScrollBars.Vertical};
+    readonly ListBox noticeResults=new(){Dock=DockStyle.Fill,HorizontalScrollbar=true};
+    readonly Button sendNotice=new(){Dock=DockStyle.Top,Height=45,Text="Enviar aviso aos clientes online"};
+    readonly CheckBox autoFullScreen=new(){AutoSize=true,Text="Abrir em tela cheia",Checked=true};
+    readonly System.Windows.Forms.Timer chatClock=new(){Interval=1000};
+    FullScreenWindow? fullScreen;
+    bool pollingChat,chatAvailable;
+    long chatCursor;
     readonly RemoteScreen screen=new(){Dock=DockStyle.Fill,BackColor=Color.FromArgb(15,27,45),SizeMode=PictureBoxSizeMode.Zoom,TabStop=true};
     readonly Label status=new(){Dock=DockStyle.Bottom,Height=32};
     readonly TextBox search=new(){Dock=DockStyle.Top,PlaceholderText="Pesquisar computador, setor ou IP"};
@@ -52,7 +65,16 @@ sealed class Technician:Form
         connect.Click+=async(_,_)=>await Safe(Connect);toolbar.Controls.Add(connect);
         Add("Encerrar",Disconnect);Add("Verificar conexão",Probe);
         toolbar.Controls.Add(text);Add("Enviar texto",async()=>{await Input(new("text",Text:text.Text));text.Clear();});
-        Controls.Add(screen);Controls.Add(sidebar);Controls.Add(toolbar);Controls.Add(status);
+        toolbar.Controls.Add(autoFullScreen);Add("Tela cheia (F11)",()=>{ToggleFullScreen();return Task.CompletedTask;});
+        remotePage.Controls.Add(screen);chatPage.Controls.Add(chatPanel);
+        tabs.TabPages.AddRange([remotePage,chatPage,noticesPage]);
+        var noticeHeader=new Label{Dock=DockStyle.Top,Height=65,Text="Envie um aviso de texto a todos os clientes online da lista, inclusive fora do filtro.\nO funcionário verá o aviso com o nome do técnico. Entrega não significa leitura.",Padding=new Padding(8)};
+        noticesPage.Padding=new Padding(12);noticesPage.Controls.Add(noticeResults);noticesPage.Controls.Add(sendNotice);noticesPage.Controls.Add(noticeText);noticesPage.Controls.Add(noticeHeader);
+        sendNotice.Click+=async(_,_)=>await Safe(Broadcast);
+        chatPanel.SetAvailable(false);chatPanel.SetTitle("Conecte a uma máquina para conversar com o funcionário.");
+        chatPanel.Send=SendChat;
+        chatClock.Tick+=async(_,_)=>{if(pollingChat||client?.Session is null||!chatAvailable)return;pollingChat=true;try{await PollChat();}catch(Exception e){if(!closing)chatPanel.SetTitle("Chat indisponível: "+e.Message);}finally{pollingChat=false;}};
+        Controls.Add(tabs);Controls.Add(sidebar);Controls.Add(toolbar);Controls.Add(status);
         search.TextChanged+=(_,_)=>Filter(search.Text);
         if(File.Exists(Path.Combine(folder,"computers.json")))devices.AddRange(Json.Read<Device[]>(Path.Combine(folder,"computers.json")));
         if(File.Exists(Path.Combine(folder,"authorities.json")))authorities.AddRange(Json.Read<TechnicianKey[]>(Path.Combine(folder,"authorities.json")));
@@ -77,16 +99,16 @@ sealed class Technician:Form
             list.Invalidate();if(dirty){SaveDevices();dirty=false;}
             foreach(var device in devices.ToArray())if(!probed.TryGetValue(device.Id,out var at)||DateTimeOffset.UtcNow-at>TimeSpan.FromSeconds(12))Discovered(device);
         };presence.Start();
-        timer.Tick+=async(_,_)=>{if(!loading&&client?.Session is not null)await Safe(Frame);};
+        timer.Tick+=async(_,_)=>{if(!loading&&client?.Session is not null&&(fullScreen is not null||tabs.SelectedTab==remotePage))await Safe(Frame);};
         screen.MouseDown+=async(_,e)=>{screen.Focus();var p=Map(e.X,e.Y);if(p is not null)await Safe(()=>Input(new("down",p.Value.X,p.Value.Y,Key:e.Button==MouseButtons.Right?2:1)));};
         screen.MouseUp+=async(_,e)=>{var p=Map(e.X,e.Y,true);if(p is not null)await Safe(()=>Input(new("up",p.Value.X,p.Value.Y,Key:e.Button==MouseButtons.Right?2:1)));};
         screen.MouseMove+=async(_,e)=>{if(client?.Session is null||DateTime.UtcNow-lastMove<TimeSpan.FromMilliseconds(90))return;lastMove=DateTime.UtcNow;var p=Map(e.X,e.Y);if(p is not null)await Safe(()=>Input(new("move",p.Value.X,p.Value.Y)));};
         screen.MouseWheel+=async(_,e)=>await Safe(()=>Input(new("wheel",Delta:e.Delta)));
-        screen.KeyDown+=async(_,e)=>{e.SuppressKeyPress=true;if(held.Add(e.KeyValue))await Safe(()=>Input(new("keyDown",Key:e.KeyValue)));};
-        screen.KeyUp+=async(_,e)=>{e.SuppressKeyPress=true;if(held.Remove(e.KeyValue))await Safe(()=>Input(new("keyUp",Key:e.KeyValue)));};
+        screen.KeyDown+=async(_,e)=>{e.SuppressKeyPress=true;if(e.KeyCode==Keys.F11){ToggleFullScreen();return;}if(held.Add(e.KeyValue))await Safe(()=>Input(new("keyDown",Key:e.KeyValue)));};
+        screen.KeyUp+=async(_,e)=>{e.SuppressKeyPress=true;if(e.KeyCode==Keys.F11)return;if(held.Remove(e.KeyValue))await Safe(()=>Input(new("keyUp",Key:e.KeyValue)));};
         screen.LostFocus+=async(_,_)=>{foreach(int k in held.ToArray())await Safe(()=>Input(new("keyUp",Key:k)));held.Clear();};
         FormClosing+=async(_,e)=>{if(closing)return;e.Cancel=true;closing=true;lifetime.Cancel();scanning?.Cancel();Enabled=false;try{await Disconnect();}catch{}finally{Close();}};
-        FormClosed+=(_,_)=>{discovery?.Dispose();presence.Dispose();scanClock.Dispose();advanced.Dispose();if(dirty)SaveDevices();timer.Dispose();client?.Dispose();identity.Dispose();screen.Image?.Dispose();};
+        FormClosed+=(_,_)=>{discovery?.Dispose();presence.Dispose();scanClock.Dispose();chatClock.Dispose();advanced.Dispose();if(dirty)SaveDevices();timer.Dispose();client?.Dispose();identity.Dispose();screen.Image?.Dispose();};
     }
     void LoadTeamCredential()
     {
@@ -213,14 +235,19 @@ sealed class Technician:Form
         {
             await Disconnect();if(list.SelectedItem is not Device d)throw new Exception("Selecione um computador na lista. Use Varredura de IP se ele ainda não apareceu.");
             client=new(d,identity);await client.Start();online[d.Id]=DateTimeOffset.UtcNow;list.Invalidate();status.Text=$"ATENDIMENTO: {d.Name} • {d.Sector} | Técnico: {identity.Public.Name}";
-            await Frame();timer.Start();screen.Focus();
+            using(var response=await client.Request(HttpMethod.Get,"/info"))
+            using(var info=JsonDocument.Parse(await response.Content.ReadAsStringAsync()))chatAvailable=HasCapability(info,"chat");
+            chatCursor=0;chatPanel.ClearHistory();chatPanel.SetAvailable(chatAvailable);
+            chatPanel.SetTitle(chatAvailable?$"Conversa com {d.Name} • Técnico: {identity.Public.Name}":"Atualize o Cliente para usar o chat.");
+            tabs.SelectedTab=remotePage;await Frame();timer.Start();chatClock.Start();
+            if(autoFullScreen.Checked)ToggleFullScreen();screen.Focus();
         }finally{connect.Enabled=true;}
     }
     async Task Disconnect()
     {
-        timer.Stop();await operations.WaitAsync();
+        timer.Stop();chatClock.Stop();ExitFullScreen();await operations.WaitAsync();
         try{if(client is not null){try{await client.Stop();}finally{client.Dispose();client=null;}}}
-        finally{operations.Release();held.Clear();var old=screen.Image;screen.Image=null;old?.Dispose();status.Text="Atendimento encerrado.";}
+        finally{operations.Release();held.Clear();var old=screen.Image;screen.Image=null;old?.Dispose();status.Text="Atendimento encerrado.";chatAvailable=false;chatPanel.SetAvailable(false);chatPanel.SetTitle("Atendimento encerrado. Conecte novamente para conversar.");}
     }
     async Task Frame()
     {
@@ -233,6 +260,74 @@ sealed class Technician:Form
     {
         if(client?.Session is null)return;
         await operations.WaitAsync();try{if(client?.Session is not null){using var r=await client.Request(HttpMethod.Post,"/input",command);}}finally{operations.Release();}
+    }
+    static bool HasCapability(JsonDocument info,string name)=>info.RootElement.TryGetProperty("capabilities",out var capabilities)
+        &&capabilities.ValueKind==JsonValueKind.Array&&capabilities.EnumerateArray().Any(c=>c.GetString()==name);
+    void ToggleFullScreen()
+    {
+        if(fullScreen is not null){ExitFullScreen();return;}
+        if(client?.Session is null){MessageBox.Show("Conecte a uma máquina antes de abrir a tela cheia.");return;}
+        fullScreen=new FullScreenWindow(screen,ExitFullScreen,()=>{ExitFullScreen();tabs.SelectedTab=chatPage;},()=>Safe(Disconnect));
+        fullScreen.FormClosing+=(_,e)=>{e.Cancel=true;ExitFullScreen();};
+        fullScreen.Show(this);screen.Focus();
+    }
+    void ExitFullScreen()
+    {
+        if(fullScreen is null)return;
+        var previous=fullScreen;fullScreen=null;remotePage.Controls.Add(screen);previous.Dispose();
+        tabs.SelectedTab=remotePage;screen.Focus();
+    }
+    async Task SendChat(string value)
+    {
+        await operations.WaitAsync();
+        try
+        {
+            if(client?.Session is null||!chatAvailable)throw new InvalidOperationException("Conecte a um Cliente atualizado para conversar.");
+            using var response=await client.Request(HttpMethod.Post,"/chat",new MessageText(value));
+            // Read in sequence via polling, avoiding duplicate own messages.
+        }finally{operations.Release();}
+        await PollChat();
+    }
+    async Task PollChat()
+    {
+        if(!await operations.WaitAsync(0))return;
+        try
+        {
+            if(client?.Session is null||!chatAvailable)return;
+            using var response=await client.Request(HttpMethod.Get,"/chat?after="+chatCursor);
+            var page=JsonSerializer.Deserialize<ChatPage>(await response.Content.ReadAsStringAsync(),Json.Options)??throw new InvalidDataException("Resposta de chat inválida.");
+            foreach(var message in page.Messages.OrderBy(m=>m.Sequence))if(message.Sequence>chatCursor){chatPanel.Append(message);chatCursor=message.Sequence;}
+        }finally{operations.Release();}
+    }
+    async Task Broadcast()
+    {
+        string value=MessageHistory.Validate(noticeText.Text);
+        var recipients=devices.Where(d=>online.TryGetValue(d.Id,out var seen)&&DateTimeOffset.UtcNow-seen<TimeSpan.FromSeconds(45)).ToArray();
+        if(recipients.Length==0)throw new InvalidOperationException("Nenhum Cliente online na lista. Instale o Cliente nos funcionários e atualize as máquinas.");
+        if(MessageBox.Show(this,$"Enviar este aviso para {recipients.Length} computador(es) online?\n\n{value}\n\nRemetente: {identity.Public.Name}","Confirmar aviso global",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
+        sendNotice.Enabled=false;noticeText.ReadOnly=true;noticeResults.Items.Clear();
+        var message=new AnnouncementRequest(Guid.NewGuid().ToString(),value);
+        int delivered=0;using var limit=new SemaphoreSlim(8,8);
+        try
+        {
+            await Task.WhenAll(recipients.Select(async device=>{
+                await limit.WaitAsync();
+                try
+                {
+                    if(closing)return;
+                    using var recipient=new RemoteClient(device,identity,TimeSpan.FromSeconds(8));
+                    using var response=await recipient.Request(HttpMethod.Get,"/info");
+                    using var info=JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                    if(closing)return;
+                    if(!HasCapability(info,"announcements")){noticeResults.Items.Add($"{device.Name} ({device.Host}): atualize o Cliente para receber avisos.");return;}
+                    using var result=await recipient.Request(HttpMethod.Post,"/announcement",message);
+                    delivered++;if(closing)return;noticeResults.Items.Add($"{device.Name} ({device.Host}): entregue ao agente.");
+                }
+                catch(Exception e){if(!closing)noticeResults.Items.Add($"{device.Name} ({device.Host}): falha — {e.Message}");}
+                finally{limit.Release();}
+            }));
+            if(!closing)noticeResults.Items.Add($"Concluído: {delivered}/{recipients.Length} entregues. Não há confirmação de leitura.");
+        }finally{if(!closing){sendNotice.Enabled=true;noticeText.ReadOnly=false;}}
     }
     Point? Map(int x,int y,bool clamp=false)
     {

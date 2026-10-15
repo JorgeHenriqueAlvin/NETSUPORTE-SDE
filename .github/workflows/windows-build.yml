@@ -112,7 +112,7 @@ jobs:
           if (Get-NetFirewallRule -Name SDE-Suporte-LAN-7443 -ErrorAction SilentlyContinue) { throw 'Regra do agente nao removida.' }
       - uses: actions/upload-artifact@v4
         with:
-          name: SDE-Suporte-Instaladores-0.6.1
+          name: SDE-Suporte-Instaladores-0.7.0
           if-no-files-found: error
           path: |
             release/*.exe

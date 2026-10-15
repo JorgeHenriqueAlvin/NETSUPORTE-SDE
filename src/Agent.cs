@@ -15,6 +15,11 @@ sealed class Agent:Form
     readonly string log;
     AgentDiscovery? discovery;
     RemoteSession? session;
+    MessageHistory chatHistory=new();
+    EmployeeChat? chat;
+    EmployeeAnnouncements? announcements;
+    readonly Dictionary<string,DateTimeOffset> announcementIds=[];
+    readonly Dictionary<string,DateTimeOffset> lastAnnouncement=[];
     DateTimeOffset activity;
     bool unavailable;
     readonly HashSet<int> heldKeys=[];
@@ -32,10 +37,15 @@ sealed class Agent:Form
         listener.Prefixes.Add($"https://+:{config.Device.Port}/");listener.AuthenticationSchemes=AuthenticationSchemes.Anonymous;
         listener.Start();
         if(config.Enrollment is not null)discovery=new AgentDiscovery(config);
+        var menu=new ContextMenuStrip();
+        menu.Items.Add("Mensagens do atendimento",null,(_,_)=>{if(chat is not null){chat.Show();chat.Activate();}});
+        menu.Items.Add("Avisos da TI",null,(_,_)=>{if(announcements is not null){announcements.Show();announcements.Activate();}});
+        tray.ContextMenuStrip=menu;
+        tray.DoubleClick+=(_,_)=>{if(chat is not null){chat.Show();chat.Activate();}};
         Shown+=(_,_)=>{Hide();_=Listen();};
         clock.Tick+=(_,_)=>{if(session is not null && (session.Expires<=DateTimeOffset.UtcNow||DateTimeOffset.UtcNow-activity>TimeSpan.FromSeconds(20)))End("expired_or_disconnected");};clock.Start();
         Microsoft.Win32.SystemEvents.SessionSwitch+=SessionChanged;
-        FormClosed+=(_,_)=>{End("agent_closed");Microsoft.Win32.SystemEvents.SessionSwitch-=SessionChanged;listener.Close();discovery?.Dispose();tray.Dispose();clock.Dispose();};
+        FormClosed+=(_,_)=>{End("agent_closed");Microsoft.Win32.SystemEvents.SessionSwitch-=SessionChanged;listener.Close();discovery?.Dispose();chat?.Dispose();announcements?.Dispose();menu.Dispose();tray.Dispose();clock.Dispose();};
     }
     void SessionChanged(object sender,Microsoft.Win32.SessionSwitchEventArgs e)
     {
@@ -55,6 +65,7 @@ sealed class Agent:Form
             heldKeys.Clear();heldMouse.Clear();
             try{Audit(reason,previous.TechnicianName);}catch{}
         }
+        chat?.Dispose();chat=null;chatHistory=new();
         Hide();tray.Text="SDE Suporte — disponível";
     }
     async Task Listen()
@@ -79,14 +90,35 @@ sealed class Agent:Form
             // team signature and binds the advertised pin to the actual TLS certificate.
             if(c.Request.HttpMethod=="GET"&&c.Request.RawUrl=="/discover"&&config.Enrollment is not null)
             {await Reply(c.Response,200,new DiscoveryMessage("SDE-DISCOVERY-1",config.Enrollment));return;}
-            if((c.Request.HasEntityBody && c.Request.ContentLength64<0) || c.Request.ContentLength64>8192){await Reply(c.Response,413,new{error="Requisição grande ou sem tamanho."});return;}
+            int bodyLimit=c.Request.Url!.AbsolutePath is "/chat" or "/announcement"?16384:8192;
+            if((c.Request.HasEntityBody && c.Request.ContentLength64<0) || c.Request.ContentLength64>bodyLimit){await Reply(c.Response,413,new{error="Requisição grande ou sem tamanho."});return;}
             byte[] body=new byte[(int)Math.Max(0,c.Request.ContentLength64)];
             using(var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(5)))await c.Request.InputStream.ReadExactlyAsync(body,timeout.Token);
             string H(string key)=>c.Request.Headers[key]??"";
             var tech=verifier.Verify(H("X-Technician"),H("X-Device"),c.Request.HttpMethod,c.Request.RawUrl??"/",body,H("X-Session"),H("X-Time"),H("X-Nonce"),H("X-Signature"),H("X-Team-Credential"));
             if(tech is null){await Reply(c.Response,403,new{error="Técnico não autorizado. Verifique o código da equipe no console."});return;}
             user=tech.Name;var path=c.Request.Url!.AbsolutePath;var method=c.Request.HttpMethod;
-            if(path=="/info" && method=="GET") {await Reply(c.Response,200,new{config.Device.Id,config.Device.Name,config.Device.Sector,version="0.6.1",available=!unavailable&&Native.DesktopAvailable()});return;}
+            if(path=="/info" && method=="GET") {await Reply(c.Response,200,new{config.Device.Id,config.Device.Name,config.Device.Sector,version="0.7.0",capabilities=new[]{"chat","announcements"},available=!unavailable&&Native.DesktopAvailable()});return;}
+            if(path=="/announcement"&&method=="POST")
+            {
+                var notice=JsonSerializer.Deserialize<AnnouncementRequest>(body,Json.Options);
+                if(notice is null||!Guid.TryParseExact(notice.Id,"D",out _)){await Reply(c.Response,400,new{error="Aviso inválido."});return;}
+                string value;
+                try{value=MessageHistory.Validate(notice.Text);}catch(ArgumentException e){await Reply(c.Response,400,new{error=e.Message});return;}
+                string key=tech.Id+notice.Id;
+                if(announcementIds.ContainsKey(key)){await Reply(c.Response,200,new{received=true,duplicate=true});return;}
+                var now=DateTimeOffset.UtcNow;
+                if(lastAnnouncement.TryGetValue(tech.Id,out var previous)&&now-previous<TimeSpan.FromSeconds(3))
+                {await Reply(c.Response,429,new{error="Aguarde três segundos entre avisos."});return;}
+                foreach(var expired in announcementIds.Where(x=>now-x.Value>TimeSpan.FromHours(1)).Select(x=>x.Key).ToArray())announcementIds.Remove(expired);
+                if(announcementIds.Count>=512)announcementIds.Remove(announcementIds.MinBy(x=>x.Value).Key);
+                // One reusable, plain-text window; receiving a notice never authorizes screen/input access.
+                Audit("announcement_received",user,notice.Id);
+                announcements??=new EmployeeAnnouncements();
+                announcements.Receive(new(0,user,value,now));
+                announcementIds[key]=now;lastAnnouncement[tech.Id]=now;
+                await Reply(c.Response,200,new{received=true,duplicate=false});return;
+            }
             if(path=="/session" && method=="POST")
             {
                 if(session is not null){await Reply(c.Response,409,new{error="Computador já está em atendimento."});return;}
@@ -95,6 +127,12 @@ sealed class Agent:Form
                 if(unavailable||!Native.DesktopAvailable()){await Reply(c.Response,409,new{error="Computador indisponível."});return;}
                 var active=new RemoteSession(Convert.ToHexString(RandomNumberGenerator.GetBytes(32)),tech.Id,tech.Name,DateTimeOffset.UtcNow,DateTimeOffset.UtcNow.AddHours(1));
                 Audit("started",user);session=active;activity=DateTimeOffset.UtcNow;
+                chatHistory=new();chat?.Dispose();chat=new EmployeeChat(tech.Name);
+                chat.Messages.Send=value=>{
+                    if(session?.Id!=active.Id)throw new InvalidOperationException("Atendimento encerrado.");
+                    var message=chatHistory.Add(Environment.UserName,value);Audit("chat_employee",active.TechnicianName);
+                    chat.Receive(message,false);return Task.CompletedTask;
+                };
                 status.Text=$"ATENDIMENTO REMOTO EM ANDAMENTO\nTécnico: {active.TechnicianName}\nInício: {active.Started.ToLocalTime():HH:mm:ss} • {config.Device.Sector}";Show();
                 tray.Text="SDE Suporte — atendimento ativo";await Reply(c.Response,200,active);return;
             }
@@ -104,6 +142,19 @@ sealed class Agent:Form
             if(unavailable||!Native.DesktopAvailable()){End("desktop_unavailable");await Reply(c.Response,409,new{error="Área de trabalho indisponível."});return;}
             activity=DateTimeOffset.UtcNow;
             if(path=="/session/end"&&method=="POST"){End("technician_stop");await Reply(c.Response,200,new{ok=true});return;}
+            if(path=="/chat"&&method=="GET")
+            {
+                if(!long.TryParse(c.Request.QueryString["after"]??"0",out var after)||after<0){await Reply(c.Response,400,new{error="Cursor inválido."});return;}
+                await Reply(c.Response,200,chatHistory.After(after));return;
+            }
+            if(path=="/chat"&&method=="POST")
+            {
+                var payload=JsonSerializer.Deserialize<MessageText>(body,Json.Options);
+                SupportMessage message;
+                try{message=chatHistory.Add(user,payload?.Text??"");}catch(ArgumentException e){await Reply(c.Response,400,new{error=e.Message});return;}
+                Audit("chat_technician",user);chat?.Receive(message,true);
+                await Reply(c.Response,200,message);return;
+            }
             if(path=="/frame"&&method=="GET")
             {
                 var bounds=SystemInformation.VirtualScreen;
