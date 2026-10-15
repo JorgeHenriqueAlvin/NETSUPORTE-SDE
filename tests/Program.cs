@@ -83,10 +83,14 @@ static class Tests
         IntPtr input=IntPtr.Zero,send=IntPtr.Zero;
         EnumChildWindows(window,(child,_)=>{
             var className=new StringBuilder(256);GetClassName(child,className,256);
-            if(className.ToString().StartsWith("WindowsForms10.EDIT"))input=child;
-            var title=new StringBuilder(256);GetWindowText(child,title,256);if(title.ToString()=="Enviar")send=child;return true;
+            string nativeClass=className.ToString();
+            if(nativeClass.Contains("EDIT",StringComparison.OrdinalIgnoreCase)&&!nativeClass.Contains("RICH",StringComparison.OrdinalIgnoreCase))input=child;
+            var title=new StringBuilder(256);SendRead(child,0x000D,(IntPtr)256,title);
+            if(title.ToString()=="Enviar")send=child;
+            Console.WriteLine("UI chat: "+nativeClass+" | "+title);return true;
         },IntPtr.Zero);
         Check(input!=IntPtr.Zero&&send!=IntPtr.Zero,"campos de resposta do funcionario disponiveis");
+        SetForegroundWindow(window);
         SendText(input,0x000C,IntPtr.Zero,"Resposta do funcionário");SendClick(send,0x00F5,IntPtr.Zero,IntPtr.Zero);
         using(var response=await client.Request(HttpMethod.Get,"/chat?after=1"))
         {
@@ -342,6 +346,7 @@ static class Tests
     [DllImport("user32.dll")]static extern bool EnumChildWindows(IntPtr window,WindowCallback callback,IntPtr parameter);
     [DllImport("user32.dll",CharSet=CharSet.Unicode)]static extern int GetClassName(IntPtr window,StringBuilder text,int count);
     [DllImport("user32.dll",CharSet=CharSet.Unicode)]static extern int GetWindowText(IntPtr window,StringBuilder text,int count);
+    [DllImport("user32.dll",EntryPoint="SendMessageW",CharSet=CharSet.Unicode)]static extern IntPtr SendRead(IntPtr window,int message,IntPtr count,StringBuilder text);
     [DllImport("user32.dll",EntryPoint="SendMessageW",CharSet=CharSet.Unicode)]static extern IntPtr SendText(IntPtr window,int message,IntPtr parameter,string text);
     [DllImport("user32.dll",EntryPoint="SendMessageW")]static extern IntPtr SendClick(IntPtr window,int message,IntPtr first,IntPtr second);
     [DllImport("user32.dll")]static extern bool SetForegroundWindow(IntPtr h);
