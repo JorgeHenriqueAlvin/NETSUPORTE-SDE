@@ -1,28 +1,31 @@
-# SDE Suporte LAN — 0.4.0
+# SDE Suporte LAN — 0.5.0
 
 Aplicativos Windows x64 para acesso remoto na rede local. Esta versão dispensa domínio, Active Directory, grupos corporativos e emissão manual de certificado. O cliente recebe atendimento e vê uma faixa com o nome aprovado do técnico e a hora de início; o console pertence ao técnico.
 
-## Instalação em três passos
+## Instalação automática
 
-### 1. No computador do técnico
+1. Instale a versão 0.5 do console pelo instalador geral, escolhendo Console do técnico.
+2. Abra o console e clique em **Gerar instalador do cliente**. Informe o setor, inclua outros técnicos se necessário e salve o executável. Você faz isso uma vez por setor/equipe.
+3. Execute o instalador gerado nos computadores dos funcionários. Confirme a instalação como administrador. O agente inicia na sessão normal do funcionário.
+4. Com o console aberto, os computadores aparecem automaticamente como **Conectado**. Selecione um deles e clique em **Conectar** para atender.
 
-Execute `SDE-Suporte-Instalador-Windows-x64.exe`, escolha **Console do técnico** e abra o atalho no menu Iniciar. No primeiro uso, informe seu nome. Clique em **1. Exportar minha identificação** e salve o arquivo `.sdetech` num pendrive ou compartilhamento de TI. Esse arquivo contém sua chave pública; a chave privada fica no Windows da sua conta e não é exportada.
+Não é preciso exportar um arquivo de cada computador, digitar IP nem configurar certificados. O funcionário vê o nome do técnico e a hora do atendimento, sem painel administrativo.
 
-### 2. No computador do funcionário
+Para outros técnicos incluídos no instalador: cada um importa o arquivo `.sdeteam` gerado ao lado do instalador uma única vez no seu console. Depois a descoberta das máquinas autorizadas é automática. O nome/identidade de cada técnico permanece individual.
 
-Use o mesmo instalador, escolha **Agente do cliente** e mantenha marcada a configuração ao concluir. Informe o setor e selecione o arquivo `.sdetech` de cada técnico autorizado. A lista vale somente para essa máquina, permitindo organizar permissões por setor. A configuração cria o certificado local automaticamente, protege a política e configura o firewall. Salve o arquivo de computador `.sdehost` quando solicitado.
+A descoberta usa UDP 7445/7446. Na mesma sub-rede, o console procura por broadcast. Os agentes também anunciam sua presença nos endereços dos técnicos registrados no instalador. Outras VLANs precisam permitir essas portas e a conexão TCP 7443. Reserva de DHCP/IP ou nome DNS estável para os computadores dos técnicos facilita a descoberta entre VLANs.
 
-**LocalSubnet** libera a conexão somente a partir da sub-rede local. Se os técnicos estiverem em outras VLANs, informe as redes IPv4 reais no campo de redes, separadas por vírgula. O firewall só é liberado nos perfis Privado e Domínio; uma rede classificada como Pública exige configuração da TI.
+O executável gerado autoriza cadastrar máquinas nessa equipe; distribua-o pela TI. Ele não contém a chave privada de controle remoto do técnico. Apenas instalar um agente genérico não autoriza qualquer pessoa da rede a acessá-lo.
 
-Por padrão, técnicos previamente autorizados conectam sem confirmação a cada sessão. Para exigir confirmação, marque essa opção na configuração. A identificação do atendimento permanece visível nos dois modos.
+Esta versão exige funcionário conectado ao Windows e tela desbloqueada. Os testes automatizados não substituem um teste entre duas máquinas da empresa.
 
-Após configurar, saia e entre no Windows do funcionário para iniciar o agente sem elevação. Alternativamente, abra **Iniciar agente** pelo menu Iniciar na sessão normal do funcionário. O ícone fica na bandeja, sem console administrativo. Se faltar configuração, aparece uma explicação com botão para configurar, em vez da exceção de arquivo ausente.
+## Descoberta e cadastro
 
-### 3. De volta ao técnico
+O console mostra presença online após verificar o agente por HTTPS com a identidade de certificado cadastrada. Computadores que deixam de responder ficam como Desconectado após aproximadamente 25 segundos. A descoberta não inicia uma sessão de tela sozinha: o técnico seleciona a máquina e inicia o atendimento.
 
-Clique em **2. Importar computador**, selecione o `.sdehost` gerado na máquina atendida, selecione o computador e clique em **Conectar**. O arquivo inclui o IP local e a identidade do certificado dessa máquina. Use **Alterar IP** se o DHCP mudar o endereço; a identidade do certificado continua sendo conferida. Não é necessário editar JSON nem instalar certificados no computador do técnico.
+O instalador personalizado contém uma autorização de cadastro assinada pelo técnico que o preparou e uma chave limitada a cadastrar computadores para a lista de técnicos/um setor. O agente recebe uma credencial de cadastro vinculada ao seu certificado. Anúncios adulterados ou emitidos por equipes não confiáveis são recusados; a chave privada de controle remoto dos técnicos não vai para o instalador. O console pode gerar esse executável sem SDK, PowerShell extra ou compilador instalado no computador do técnico.
 
-O console permite pesquisa por computador, setor ou IP, clique e arraste, rolagem, teclado quando a tela remota tem foco, envio de texto e encerramento do atendimento. O botão Verificar conexão testa o agente sem iniciar transmissão de tela.
+Na instalação normal, o agente inicia depois da elevação com a conta original do funcionário. Também inicia no próximo login. Sua configuração e certificados são gerados automaticamente. A opção manual do instalador geral continua disponível para configuração avançada e compatibilidade com a versão anterior.
 
 ## Identificação e autorização
 
@@ -30,7 +33,7 @@ Sem domínio, o nome exibido é o nome da identificação que a TI aprovou no ag
 
 Cada requisição é assinada e vinculada à máquina, ao caminho, ao conteúdo e à sessão. Datas e nonces impedem reutilização de requisições. O console só aceita o certificado cujo SHA-256 consta no arquivo de computador importado; não há opção para aceitar qualquer certificado. Não copie identificações de técnico entre contas, nem importe arquivos de computador de origem desconhecida.
 
-Para acrescentar ou retirar técnicos, execute **Configurar agente** como administrador e selecione a lista completa desejada. A reconfiguração encerra o agente, cria nova identidade de conexão e exige reimportar o `.sdehost` no console. O programa não adiciona contas ao Windows e não altera o domínio.
+Para mudar os técnicos do cadastro automático, gere e distribua um novo instalador para a equipe desejada. A reinstalação preserva o identificador da máquina e atualiza a credencial/certificado. O console redescobre e verifica o computador automaticamente. O programa não adiciona contas ao Windows e não altera o domínio.
 
 ## Limites e implantação
 
@@ -44,14 +47,14 @@ Logs locais de início/fim/erro: `%LOCALAPPDATA%\SdeSuporte\logs\audit.jsonl`. N
 
 ## Compilar e testar
 
-O GitHub Actions compila os dois aplicativos .NET 10, testa o protocolo e executa um atendimento local entre processos Windows, incluindo captura e digitação num aplicativo de teste. Também gera o instalador e testa as seleções de técnico e agente, inclusive abrir o agente sem configuração. Confira o resultado real na aba Actions; aprovação no CI não comprova a conectividade/firewall entre duas máquinas da sua empresa.
+O GitHub Actions compila o console, o agente e o instalador personalizado .NET 10. Testa o protocolo, a autorização de cadastro, a descoberta por UDP sem importar o arquivo da máquina e um atendimento entre processos Windows, incluindo captura e digitação num aplicativo de teste. Também gera o instalador e testa as seleções de técnico e agente, inclusive abrir o agente sem configuração. Confira o resultado real na aba Actions; aprovação no CI não comprova a conectividade/firewall entre duas máquinas da sua empresa.
 
-No Windows com SDK .NET 10: `scripts\Build.ps1`. Os testes de integração usam uma porta de teste e certificado temporário, exigem administrador e um desktop Windows interativo: `scripts\Test-Windows.ps1`.
+No Windows com SDK .NET 10: `scripts\Build.ps1`, seguido de `scripts\Build-Template.ps1`. Os testes de integração usam uma porta de teste e certificado temporário, exigem administrador e um desktop Windows interativo: `scripts\Test-Windows.ps1`.
 
 Para uso normal baixe o instalador na pasta **release** do artefato de uma execução bem-sucedida no GitHub. Instalador e executáveis ainda não possuem assinatura Authenticode.
 
 ## Remoção
 
-Desinstale por Aplicativos do Windows ou pelo menu Iniciar. A limpeza remove o vínculo e certificado criados pelo agente, a reserva da porta, a regra de firewall e a inicialização automática. Identificação privada do técnico e logs da conta são preservados; uma reinstalação pode reutilizar a identificação do técnico. Arquivos `.sdehost` exportados não são apagados dos locais escolhidos.
+O cliente personalizado registra **SDE Suporte - Cliente** em Aplicativos do Windows. O instalador geral continua com a entrada SDE Suporte. Use a remoção correspondente. A limpeza remove o vínculo e certificado criados pelo agente, a reserva da porta, a regra de firewall e a inicialização automática. Identificação privada do técnico e logs da conta são preservados; uma reinstalação pode reutilizar a identificação do técnico. Arquivos `.sdehost` exportados não são apagados dos locais escolhidos.
 
 Autoria do projeto: Jorge Henrique — CMTIC/SDE. Projeto assistido por IA; validar em máquinas reais antes da distribuição ampla.

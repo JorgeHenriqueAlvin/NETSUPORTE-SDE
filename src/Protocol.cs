@@ -5,7 +5,7 @@ using System.Text;
 using System.Text.Json;
 
 namespace SdeSuporte;
-public record TechnicianKey(string Id, string Name, string PublicKey);
+public record TechnicianKey(string Id, string Name, string PublicKey, string[]? DiscoveryAddresses = null);
 public record Device(string Id, string Name, string Sector, string Host, int Port, string CertificateSha256)
 {
     public override string ToString() => $"{Name} • {Sector} ({Host})";
@@ -17,7 +17,7 @@ public record Device(string Id, string Name, string Sector, string Host, int Por
             || !CertificateSha256.All(Uri.IsHexDigit)) throw new InvalidDataException("Arquivo de computador inválido.");
     }
 }
-public record AgentConfig(Device Device, TechnicianKey[] Technicians, bool RequireConsent = true);
+public record AgentConfig(Device Device, TechnicianKey[] Technicians, bool RequireConsent = true, DeviceEnrollment? Enrollment = null);
 public record RemoteSession(string Id, string TechnicianId, string TechnicianName, DateTimeOffset Started, DateTimeOffset Expires);
 public record InputCommand(string Kind, int X=0, int Y=0, string Text="", int Key=0, int Delta=0);
 public static class Json
@@ -29,18 +29,19 @@ public static class Json
 public sealed class TechnicianIdentity : IDisposable
 {
     readonly ECDsa key;
+    readonly object keyLock = new();
     public TechnicianKey Public { get; }
     public TechnicianIdentity(ECDsa key,string name)
     {
         this.key=key;
         if (string.IsNullOrWhiteSpace(name) || name.Length>80 || name.Any(char.IsControl)) throw new ArgumentException("Informe o nome do técnico (até 80 caracteres).");
         var pub=key.ExportSubjectPublicKeyInfo();
-        Public=new(Convert.ToHexString(SHA256.HashData(pub)),name.Trim(),Convert.ToBase64String(pub));
+        Public=new(Convert.ToHexString(SHA256.HashData(pub)),name.Trim(),Convert.ToBase64String(pub),DiscoveryNetwork.Addresses());
     }
     public byte[] ExportPrivate() => key.ExportPkcs8PrivateKey();
     public static TechnicianIdentity FromPrivate(byte[] bytes,string name) { var k=ECDsa.Create(); k.ImportPkcs8PrivateKey(bytes,out _); return new(k,name); }
-    public string Sign(string method,string path,byte[] body,string session,string time,string nonce,string device) => Convert.ToBase64String(key.SignData(
-        Canonical(method,path,body,session,time,nonce,device),HashAlgorithmName.SHA256));
+    public string SignDetached(byte[] data){lock(keyLock)return Convert.ToBase64String(key.SignData(data,HashAlgorithmName.SHA256));}
+    public string Sign(string method,string path,byte[] body,string session,string time,string nonce,string device) => SignDetached(Canonical(method,path,body,session,time,nonce,device));
     public static byte[] Canonical(string method,string path,byte[] body,string session,string time,string nonce,string device) => Encoding.UTF8.GetBytes(
         $"{device}\n{method}\n{path}\n{Convert.ToHexString(SHA256.HashData(body))}\n{session}\n{time}\n{nonce}");
     public void Dispose() => key.Dispose();
@@ -84,7 +85,7 @@ public sealed class RemoteClient : IDisposable
     readonly TechnicianIdentity identity;
     readonly string deviceId;
     public RemoteSession? Session {get;private set;}
-    public RemoteClient(Device device,TechnicianIdentity identity)
+    public RemoteClient(Device device,TechnicianIdentity identity,TimeSpan? timeout=null)
     {
         device.Validate(); this.identity=identity;deviceId=device.Id;
         http=new(new HttpClientHandler {
@@ -92,7 +93,7 @@ public sealed class RemoteClient : IDisposable
             ServerCertificateCustomValidationCallback=(_,cert,_,_) => cert is not null
                 && DateTime.UtcNow>=cert.NotBefore.ToUniversalTime() && DateTime.UtcNow<=cert.NotAfter.ToUniversalTime()
                 && string.Equals(Convert.ToHexString(SHA256.HashData(cert.RawData)),device.CertificateSha256,StringComparison.OrdinalIgnoreCase)
-        }) { BaseAddress=new Uri($"https://{device.Host}:{device.Port}"),Timeout=TimeSpan.FromSeconds(40) };
+        }) { BaseAddress=new Uri($"https://{device.Host}:{device.Port}"),Timeout=timeout??TimeSpan.FromSeconds(40) };
     }
     public async Task<HttpResponseMessage> Request(HttpMethod method,string path,object? value=null)
     {

@@ -22,7 +22,7 @@ $techs=@($TechnicianFiles | ForEach-Object {
  $publicBytes=[Convert]::FromBase64String($tech.publicKey)
  $id=([BitConverter]::ToString($sha.ComputeHash($publicBytes))).Replace('-','')
  if ($tech.id -cne $id -or [string]::IsNullOrWhiteSpace($tech.name) -or $tech.name.Length -gt 80 -or $tech.name -match '[\x00-\x1F\x7F]') { throw "Identificacao de tecnico invalida: $_" }
- @{id=$id;name=[string]$tech.name;publicKey=[string]$tech.publicKey}
+ @{id=$id;name=[string]$tech.name;publicKey=[string]$tech.publicKey;discoveryAddresses=@($tech.discoveryAddresses)}
 })
 if (($techs | Group-Object id | Where-Object Count -gt 1)) { throw 'Identificacao de tecnico duplicada.' }
 if ($TechnicianNetworks.Count -eq 0 -or ($TechnicianNetworks | Where-Object { $_ -in @('Any','0.0.0.0/0','::/0','Internet') })) { throw 'Use LocalSubnet ou as sub-redes especificas dos tecnicos.' }
@@ -57,7 +57,10 @@ if ($LASTEXITCODE -ne 0) { throw 'Falha ao reservar o endereco do agente.' }
 $rule="SDE-Suporte-LAN-$Port"
 Get-NetFirewallRule -Name $rule -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 New-NetFirewallRule -Name $rule -DisplayName "SDE Suporte LAN $Port" -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port -Profile Domain,Private -RemoteAddress $TechnicianNetworks | Out-Null
-$device=@{id=[guid]::NewGuid().ToString();name=$env:COMPUTERNAME;sector=$Sector;host=$ConnectionHost;port=$Port;certificateSha256=([BitConverter]::ToString($sha.ComputeHash($cert.RawData))).Replace('-','')}
+$deviceId=[guid]::NewGuid().ToString()
+$previousFile=Join-Path $InstallDirectory 'agent.json'
+if(Test-Path $previousFile){try{$previous=Get-Content $previousFile -Raw -Encoding UTF8 | ConvertFrom-Json;$parsed=[guid]::Empty;if([guid]::TryParse($previous.device.id,[ref]$parsed)){$deviceId=$parsed.ToString()}}catch{}}
+$device=@{id=$deviceId;name=$env:COMPUTERNAME;sector=$Sector;host=$ConnectionHost;port=$Port;certificateSha256=([BitConverter]::ToString($sha.ComputeHash($cert.RawData))).Replace('-','')}
 $config=@{device=$device;technicians=$techs;requireConsent=$RequireConsent;certificateThumbprint=$cert.Thumbprint}
 $utf8=New-Object System.Text.UTF8Encoding($false)
 [IO.File]::WriteAllText((Join-Path $InstallDirectory 'agent.json'),($config | ConvertTo-Json -Depth 8),$utf8)

@@ -13,6 +13,7 @@ sealed class Agent:Form
     readonly NotifyIcon tray=new(){Icon=SystemIcons.Information,Visible=true,Text="SDE Suporte — disponível"};
     readonly System.Windows.Forms.Timer clock=new(){Interval=1000};
     readonly string log;
+    AgentDiscovery? discovery;
     RemoteSession? session;
     DateTimeOffset activity;
     bool unavailable;
@@ -29,10 +30,11 @@ sealed class Agent:Form
         Directory.CreateDirectory(logs);log=Path.Combine(logs,"audit.jsonl");
         listener.Prefixes.Add($"https://+:{config.Device.Port}/");listener.AuthenticationSchemes=AuthenticationSchemes.Anonymous;
         listener.Start();
+        if(config.Enrollment is not null)discovery=new AgentDiscovery(config);
         Shown+=(_,_)=>{Hide();_=Listen();};
         clock.Tick+=(_,_)=>{if(session is not null && (session.Expires<=DateTimeOffset.UtcNow||DateTimeOffset.UtcNow-activity>TimeSpan.FromSeconds(20)))End("expired_or_disconnected");};clock.Start();
         Microsoft.Win32.SystemEvents.SessionSwitch+=SessionChanged;
-        FormClosed+=(_,_)=>{End("agent_closed");Microsoft.Win32.SystemEvents.SessionSwitch-=SessionChanged;listener.Close();tray.Dispose();clock.Dispose();};
+        FormClosed+=(_,_)=>{End("agent_closed");Microsoft.Win32.SystemEvents.SessionSwitch-=SessionChanged;listener.Close();discovery?.Dispose();tray.Dispose();clock.Dispose();};
     }
     void SessionChanged(object sender,Microsoft.Win32.SessionSwitchEventArgs e)
     {
@@ -79,7 +81,7 @@ sealed class Agent:Form
             var tech=verifier.Verify(H("X-Technician"),H("X-Device"),c.Request.HttpMethod,c.Request.RawUrl??"/",body,H("X-Session"),H("X-Time"),H("X-Nonce"),H("X-Signature"));
             if(tech is null){await Reply(c.Response,403,new{error="Técnico não autorizado ou assinatura inválida. Importe sua identificação na instalação do agente."});return;}
             user=tech.Name;var path=c.Request.Url!.AbsolutePath;var method=c.Request.HttpMethod;
-            if(path=="/info" && method=="GET") {await Reply(c.Response,200,new{config.Device.Id,config.Device.Name,config.Device.Sector,version="0.4.0",available=!unavailable&&Native.DesktopAvailable()});return;}
+            if(path=="/info" && method=="GET") {await Reply(c.Response,200,new{config.Device.Id,config.Device.Name,config.Device.Sector,version="0.5.0",available=!unavailable&&Native.DesktopAvailable()});return;}
             if(path=="/session" && method=="POST")
             {
                 if(session is not null){await Reply(c.Response,409,new{error="Computador já está em atendimento."});return;}

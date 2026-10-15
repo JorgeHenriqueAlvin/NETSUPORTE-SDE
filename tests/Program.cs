@@ -16,9 +16,12 @@ static class Tests
             {
                 Directory.CreateDirectory(args[1]);
                 using var id=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Técnico de Teste");
+                Json.Write(Path.Combine(args[1],"deployment.json"),Enrollment.Create(id,[],"Teste"));
                 Json.Write(Path.Combine(args[1],"tecnico.sdetech"),id.Public);File.WriteAllBytes(Path.Combine(args[1],"private-test.pk8"),id.ExportPrivate());return 0;
             }
-            if(args[0]=="protocol") {Protocol();return 0;}
+            if(args[0]=="protocol") {Protocol();EnrollmentTests();return 0;}
+            if(args[0]=="template"){InstallerPackage.CreateTemplate(args[1],args[2],args[3]);return 0;}
+            if(args[0]=="package"){using var creator=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Preparador");InstallerPackage.Personalize(args[1],args[2],Enrollment.Create(creator,[],"Teste"));return 0;}
             await Live(args[1],args[2]);return 0;
         }catch(Exception e){Console.Error.WriteLine(e);return 1;}
     }
@@ -50,11 +53,28 @@ static class Tests
         Check(v.Verify(id.Public.Id,device,"POST","/input",body,"session",old,nonce,sig) is null,"assinatura expirada bloqueada");
         try{_=new RequestVerifier([],device);throw new Exception("politica vazia aceita");}catch(InvalidDataException){Console.WriteLine("OK: politica vazia bloqueada");}
     }
+    static void EnrollmentTests()
+    {
+        using var admin=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Preparador");
+        var profile=Enrollment.Create(admin,[],"Setor de Teste");
+        var device=new Device(Guid.NewGuid().ToString(),"CLIENTE","Setor de Teste","127.0.0.1",7443,new string('A',64));
+        var proof=Enrollment.Seal(device,profile);
+        Enrollment.VerifyDevice(proof,[admin.Public.Id],admin.Public.Id);Console.WriteLine("OK: cadastro automatico autorizado pela equipe");
+        try{Enrollment.VerifyDevice(proof with{Device=device with{CertificateSha256=new string('B',64)}},[admin.Public.Id],admin.Public.Id);throw new Exception("certificado alterado aceito");}catch(InvalidDataException){Console.WriteLine("OK: certificado de cadastro adulterado rejeitado");}
+        try{Enrollment.VerifyDevice(proof,[],admin.Public.Id);throw new Exception("autoridade desconhecida aceita");}catch(InvalidDataException){Console.WriteLine("OK: equipe desconhecida nao cadastra maquinas");}
+        try{Enrollment.VerifyDevice(proof,[admin.Public.Id],"desconhecido");throw new Exception("tecnico desconhecido aceito");}catch(InvalidDataException){Console.WriteLine("OK: descoberta respeita lista de tecnicos");}
+        var modified=profile.Approval with{Permission=profile.Approval.Permission with{Sector="Outro setor"}};
+        try{Enrollment.VerifyPermission(modified);throw new Exception("setor alterado aceito");}catch(InvalidDataException){Console.WriteLine("OK: autorizacao de setor adulterada rejeitada");}
+    }
     static async Task Live(string fixture,string hostFile)
     {
-        var d=Json.Read<Device>(hostFile);d.Validate();
+        var expected=Json.Read<AgentConfig>(hostFile).Device;expected.Validate();
         var metadata=Json.Read<TechnicianKey>(Path.Combine(fixture,"tecnico.sdetech"));
         using var id=TechnicianIdentity.FromPrivate(File.ReadAllBytes(Path.Combine(fixture,"private-test.pk8")),metadata.Name);
+        var discovered=new TaskCompletionSource<Device>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var discovery=new ConsoleDiscovery(id,()=>[id.Public.Id],d=>{if(d.Id==expected.Id)discovered.TrySetResult(d);},17445);
+        for(int attempt=0;attempt<20&&!discovered.Task.IsCompleted;attempt++){await discovery.SearchTo(new IPEndPoint(IPAddress.Loopback,7446));await Task.Delay(500);}
+        var d=await discovered.Task.WaitAsync(TimeSpan.FromSeconds(5));Check(d.Id==expected.Id,"agente aparece por descoberta sem importar arquivo da maquina");
         using var client=new RemoteClient(d,id);
         bool ready=false;
         for(int i=0;i<20;i++){try{using var response=await client.Request(HttpMethod.Get,"/info");ready=true;break;}catch{await Task.Delay(500);}}

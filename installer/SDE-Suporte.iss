@@ -1,4 +1,4 @@
-#define AppVersion "0.4.0"
+#define AppVersion "0.5.0"
 [Setup]
 AppId={{6014C993-C8FA-48AA-A6B9-20821E06FA12}
 AppName=SDE Suporte
@@ -20,7 +20,7 @@ CloseApplications=yes
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
 [Types]
 Name: "technician"; Description: "Console do técnico"
-Name: "client"; Description: "Agente do cliente"
+Name: "client"; Description: "Agente manual (avançado)"
 Name: "full"; Description: "Técnico e agente nesta máquina"
 Name: "custom"; Description: "Personalizada"; Flags: iscustom
 [Components]
@@ -34,16 +34,19 @@ Source: "..\scripts\Uninstall-Agent.ps1"; DestDir: "{app}\scripts"; Components: 
 Source: "..\scripts\Configure-Agent.ps1"; DestDir: "{app}\scripts"; Components: client
 Source: "..\scripts\Cleanup-Agent.ps1"; DestDir: "{app}\scripts"
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\scripts\Initialize-Console.ps1"; DestDir: "{app}\scripts"; Components: technician
 [Icons]
 Name: "{group}\SDE Suporte - Técnico"; Filename: "{app}\Technician\SDE-Suporte-Tecnico.exe"; Components: technician
 Name: "{group}\Configurar agente"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\Configure-Agent.ps1"""; Components: client
 Name: "{group}\Iniciar agente"; Filename: "{app}\Agent\SDE-Suporte-Cliente.exe"; Components: client
 Name: "{group}\Instruções"; Filename: "{app}\README.md"
 [Run]
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\Initialize-Console.ps1"""; Components: technician; Flags: runhidden waituntilterminated
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\Configure-Agent.ps1"""; Description: "Configurar agente na rede local (sem domínio)"; Flags: postinstall skipifsilent; Components: client
 [UninstallRun]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\Cleanup-Agent.ps1"""; Flags: waituntilterminated
 [UninstallDelete]
 Type: files; Name: "{app}\Agent\SDE-Suporte-Cliente.exe"
 Type: files; Name: "{app}\Agent\agent.json"
+
 

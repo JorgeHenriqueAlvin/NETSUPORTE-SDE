@@ -8,6 +8,19 @@ static class Program
         try
         {
 #if AGENT_ONLY
+            if(args.Length==2 && args[0]=="--seal")
+            {
+                try {
+                    var file=Path.Combine(AppContext.BaseDirectory,"agent.json");
+                    var config=Json.Read<AgentConfig>(file);var profile=Json.Read<DeploymentProfile>(args[1]);
+                    if(!config.Technicians.Select(t=>t.Id+"|"+t.Name+"|"+t.PublicKey).Order().SequenceEqual(profile.Approval.Permission.Technicians.Select(t=>t.Id+"|"+t.Name+"|"+t.PublicKey).Order()))throw new Exception("Lista de técnicos divergente.");
+                    var node=System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(file))!;
+                    node["enrollment"]=System.Text.Json.JsonSerializer.SerializeToNode(Enrollment.Seal(config.Device,profile),Json.Options);
+                    File.WriteAllText(file,node.ToJsonString(Json.Options));
+                    Environment.ExitCode=0;
+                }catch(Exception e){File.WriteAllText(Path.Combine(AppContext.BaseDirectory,"setup-error.txt"),e.Message);Environment.ExitCode=1;}
+                return;
+            }
             using var single=new Mutex(true,@"Local\SDE-Suporte-Agent",out var first);
             if(!first)return;
             var path=Path.Combine(AppContext.BaseDirectory,"agent.json");

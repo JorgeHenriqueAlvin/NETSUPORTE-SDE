@@ -8,6 +8,7 @@ on:
       - '.github/workflows/windows-build.yml'
       - 'installer/**'
       - 'tests/**'
+      - 'bootstrapper/**'
 permissions:
   contents: read
 jobs:
@@ -30,7 +31,10 @@ jobs:
       - name: Compilar os dois aplicativos
         shell: pwsh
         run: ./scripts/Build.ps1
-      - name: Testar autenticacao, HTTPS, captura e digitacao sem dominio
+      - name: Preparar modelo do instalador automatico do cliente
+        shell: pwsh
+        run: ./scripts/Build-Template.ps1
+      - name: Testar instalacao automatica, descoberta e suporte remoto
         shell: pwsh
         run: ./scripts/Test-Windows.ps1
       - name: Conferir assinaturas de executáveis PE
@@ -88,4 +92,5 @@ jobs:
             dist/
             scripts/*.ps1
             README.md
+
 

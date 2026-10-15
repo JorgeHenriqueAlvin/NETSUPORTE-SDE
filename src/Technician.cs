@@ -13,6 +13,14 @@ sealed class Technician:Form
     readonly System.Windows.Forms.Timer timer=new(){Interval=350};
     readonly SemaphoreSlim operations=new(1,1);
     readonly TechnicianIdentity identity;
+    ConsoleDiscovery? discovery;
+    readonly List<TechnicianKey> authorities=[];
+    readonly Dictionary<string,DateTimeOffset> online=[];
+    readonly Dictionary<string,DateTimeOffset> probed=[];
+    readonly HashSet<string> checking=[];
+    readonly SemaphoreSlim probes=new(8,8);
+    readonly System.Windows.Forms.Timer presence=new(){Interval=4000};
+    bool dirty;
     RemoteClient? client;
     bool loading,closing;
     DateTime lastMove;
@@ -27,8 +35,11 @@ sealed class Technician:Form
         sidebar.Controls.Add(list);sidebar.Controls.Add(search);
         var toolbar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=95,Padding=new Padding(6),AutoScroll=true};
         Button Add(string label,Func<Task> action){var b=new Button{Text=label,AutoSize=true};b.Click+=async(_,_)=>await Safe(action);toolbar.Controls.Add(b);return b;}
-        Add("1. Exportar minha identificação",()=>{ExportIdentity();return Task.CompletedTask;});
-        Add("2. Importar computador",()=>{ImportDevices();return Task.CompletedTask;});
+        Add("Gerar instalador do cliente",()=>{GenerateInstaller();return Task.CompletedTask;});
+        Add("Importar equipe",()=>{ImportTeam();return Task.CompletedTask;});
+        Add("Atualizar máquinas",async()=>{if(discovery is not null)await discovery.Search();});
+        Add("Exportar minha identificação",()=>{ExportIdentity();return Task.CompletedTask;});
+        Add("Importar computador (manual)",()=>{ImportDevices();return Task.CompletedTask;});
         Add("Alterar IP",()=>{EditAddress();return Task.CompletedTask;});
         Add("Remover da lista",()=>{if(list.SelectedItem is Device d){devices.Remove(d);SaveDevices();Filter(search.Text);}return Task.CompletedTask;});
         connect.Click+=async(_,_)=>await Safe(Connect);toolbar.Controls.Add(connect);
@@ -37,7 +48,20 @@ sealed class Technician:Form
         Controls.Add(screen);Controls.Add(sidebar);Controls.Add(toolbar);Controls.Add(status);
         search.TextChanged+=(_,_)=>Filter(search.Text);
         if(File.Exists(Path.Combine(folder,"computers.json")))devices.AddRange(Json.Read<Device[]>(Path.Combine(folder,"computers.json")));
-        Filter("");status.Text=$"Técnico: {identity.Public.Name} | Exporte sua identificação, autorize no agente e importe o computador.";
+        if(File.Exists(Path.Combine(folder,"authorities.json")))authorities.AddRange(Json.Read<TechnicianKey[]>(Path.Combine(folder,"authorities.json")));
+        authorities.RemoveAll(a=>a.Id==identity.Public.Id);authorities.Add(identity.Public);
+        list.DrawMode=DrawMode.OwnerDrawFixed;list.ItemHeight=54;
+        list.DrawItem+=(_,e)=>{
+            if(e.Index<0)return;e.DrawBackground();var d=(Device)list.Items[e.Index];
+            bool available=online.TryGetValue(d.Id,out var seen)&&DateTimeOffset.UtcNow-seen<TimeSpan.FromSeconds(25);
+            var color=(e.State&DrawItemState.Selected)!=0?SystemColors.HighlightText:Color.FromArgb(25,45,65);
+            TextRenderer.DrawText(e.Graphics,d.Name,Font,new Rectangle(e.Bounds.X+5,e.Bounds.Y+4,e.Bounds.Width-110,23),color,TextFormatFlags.EndEllipsis);
+            TextRenderer.DrawText(e.Graphics,available?"Conectado":"Desconectado",Font,new Rectangle(e.Bounds.Right-105,e.Bounds.Y+8,100,20),available?Color.ForestGreen:color,TextFormatFlags.EndEllipsis);
+            TextRenderer.DrawText(e.Graphics,$"{d.Sector} • {d.Host}",Font,new Rectangle(e.Bounds.X+5,e.Bounds.Y+27,e.Bounds.Width-10,22),color,TextFormatFlags.EndEllipsis);e.DrawFocusRectangle();
+        };
+        Filter("");status.Text=$"Técnico: {identity.Public.Name} | Gere o instalador do cliente. As máquinas autorizadas aparecerão automaticamente.";
+        Shown+=(_,_)=>{try{discovery=new ConsoleDiscovery(identity,()=>authorities.Select(a=>a.Id).ToArray(),d=>{if(!IsDisposed&&!closing)BeginInvoke(new Action(()=>{if(!closing)Discovered(d);}));});}catch(Exception e){status.Text="Descoberta indisponível: "+e.Message;}};
+        presence.Tick+=(_,_)=>{list.Invalidate();if(dirty){SaveDevices();dirty=false;}};presence.Start();
         timer.Tick+=async(_,_)=>{if(!loading&&client?.Session is not null)await Safe(Frame);};
         screen.MouseDown+=async(_,e)=>{screen.Focus();var p=Map(e.X,e.Y);if(p is not null)await Safe(()=>Input(new("down",p.Value.X,p.Value.Y,Key:e.Button==MouseButtons.Right?2:1)));};
         screen.MouseUp+=async(_,e)=>{var p=Map(e.X,e.Y,true);if(p is not null)await Safe(()=>Input(new("up",p.Value.X,p.Value.Y,Key:e.Button==MouseButtons.Right?2:1)));};
@@ -47,7 +71,7 @@ sealed class Technician:Form
         screen.KeyUp+=async(_,e)=>{e.SuppressKeyPress=true;if(held.Remove(e.KeyValue))await Safe(()=>Input(new("keyUp",Key:e.KeyValue)));};
         screen.LostFocus+=async(_,_)=>{foreach(int k in held.ToArray())await Safe(()=>Input(new("keyUp",Key:k)));held.Clear();};
         FormClosing+=async(_,e)=>{if(closing)return;e.Cancel=true;closing=true;Enabled=false;try{await Disconnect();}catch{}finally{Close();}};
-        FormClosed+=(_,_)=>{timer.Dispose();client?.Dispose();identity.Dispose();screen.Image?.Dispose();};
+        FormClosed+=(_,_)=>{discovery?.Dispose();presence.Dispose();if(dirty)SaveDevices();timer.Dispose();client?.Dispose();identity.Dispose();screen.Image?.Dispose();};
     }
     TechnicianIdentity LoadIdentity()
     {
@@ -62,6 +86,46 @@ sealed class Technician:Form
             Json.Write(path,new LocalIdentity(name,keyName));
         }
         return new(new ECDsaCng(CngKey.Open(keyName)),name);
+    }
+    void GenerateInstaller()
+    {
+        string template=Path.Combine(AppContext.BaseDirectory,"agent.sdetemplate");
+        if(!File.Exists(template))throw new Exception("Instale a nova versão do console para gerar o instalador do cliente.");
+        string? sector=NameDialog.Ask("Instalador do cliente","Setor das máquinas que receberão este instalador","Empresa");if(sector is null)return;
+        var technicians=new List<TechnicianKey>();
+        if(MessageBox.Show("Incluir outros técnicos autorizados neste instalador?\nSelecione suas identificações públicas .sdetech.","Equipe",MessageBoxButtons.YesNo)==DialogResult.Yes)
+        {using var open=new OpenFileDialog{Filter="Técnico (*.sdetech)|*.sdetech",Multiselect=true};if(open.ShowDialog()==DialogResult.OK)foreach(var file in open.FileNames)technicians.Add(Json.Read<TechnicianKey>(file));}
+        var profile=Enrollment.Create(identity,technicians,sector);
+        using var save=new SaveFileDialog{Filter="Instalador do cliente (*.exe)|*.exe",FileName="SDE-Suporte-Cliente-Instalar.exe"};if(save.ShowDialog()!=DialogResult.OK)return;
+        InstallerPackage.Personalize(template,save.FileName,profile);
+        string team=Path.ChangeExtension(save.FileName,".sdeteam");Json.Write(team,profile.Approval.Permission.Issuer);
+        MessageBox.Show("Instalador do cliente gerado.\nExecute esse .exe nas máquinas do setor. Elas aparecerão automaticamente neste console.\n\nPara outros técnicos da lista, importe o arquivo .sdeteam uma única vez em seus consoles.\nDistribua este instalador somente pela equipe de TI.","SDE Suporte");
+    }
+    void ImportTeam()
+    {
+        using var open=new OpenFileDialog{Filter="Equipe SDE (*.sdeteam)|*.sdeteam"};if(open.ShowDialog()!=DialogResult.OK)return;
+        var issuer=Json.Read<TechnicianKey>(open.FileName);Enrollment.VerifyPublic(issuer);
+        if(MessageBox.Show($"Confiar em computadores cadastrados por {issuer.Name}?\nIdentificação: {issuer.Id[..16]}","Importar equipe",MessageBoxButtons.YesNo)!=DialogResult.Yes)return;
+        authorities.RemoveAll(a=>a.Id==issuer.Id);authorities.Add(issuer);Json.Write(Path.Combine(folder,"authorities.json"),authorities);
+        if(discovery is not null)_=discovery.Search();
+    }
+    async void Discovered(Device d)
+    {
+        if(checking.Contains(d.Id)||probed.TryGetValue(d.Id,out var last)&&DateTimeOffset.UtcNow-last<TimeSpan.FromSeconds(7))return;
+        probed[d.Id]=DateTimeOffset.UtcNow;checking.Add(d.Id);await probes.WaitAsync();
+        try
+        {
+            if(closing||IsDisposed)return;
+            using var candidate=new RemoteClient(d,identity,TimeSpan.FromSeconds(4));using var response=await candidate.Request(HttpMethod.Get,"/info");
+            using var info=JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            if(info.RootElement.GetProperty("id").GetString()!=d.Id)return;
+            if(closing||IsDisposed)return;
+            online[d.Id]=DateTimeOffset.UtcNow;
+            var existing=devices.FirstOrDefault(x=>x.Id==d.Id);
+            if(existing!=d){devices.RemoveAll(x=>x.Id==d.Id);devices.Add(d);dirty=true;Filter("");}
+            list.Invalidate();
+        }catch{online.Remove(d.Id);if(!IsDisposed)list.Invalidate();}
+        finally{checking.Remove(d.Id);probes.Release();}
     }
     void ExportIdentity()
     {
@@ -88,7 +152,7 @@ sealed class Technician:Form
         var updated=d with{Host=address.Trim()};updated.Validate();devices.RemoveAll(x=>x.Id==d.Id);devices.Add(updated);SaveDevices();Filter("");
     }
     void SaveDevices()=>Json.Write(Path.Combine(folder,"computers.json"),devices);
-    void Filter(string query){list.Items.Clear();foreach(var d in devices.Where(d=>d.ToString().Contains(query,StringComparison.CurrentCultureIgnoreCase)).OrderBy(d=>d.Name))list.Items.Add(d);}
+    void Filter(string query){string? selected=(list.SelectedItem as Device)?.Id;list.Items.Clear();foreach(var d in devices.Where(d=>d.ToString().Contains(query,StringComparison.CurrentCultureIgnoreCase)).OrderBy(d=>d.Name)){list.Items.Add(d);if(d.Id==selected)list.SelectedItem=d;}}
     async Task Safe(Func<Task> action)
     {
         try{await action();}catch(Exception e){timer.Stop();status.Text="Falha: "+e.Message;if(!closing)MessageBox.Show(e.Message,"SDE Suporte",MessageBoxButtons.OK,MessageBoxIcon.Information);}
