@@ -73,7 +73,7 @@ sealed class Agent:Form
     {
         while(listener.IsListening)
         {
-            try{var c=await listener.GetContextAsync();_=Handle(c);}catch(HttpListenerException){break;}catch(ObjectDisposedException){break;}
+            try{var c=await listener.GetContextAsync();BeginInvoke(new Action(()=>_=Handle(c)));}catch(HttpListenerException){break;}catch(ObjectDisposedException){break;}
         }
     }
     async Task Reply(HttpListenerResponse r,int code,object value)
