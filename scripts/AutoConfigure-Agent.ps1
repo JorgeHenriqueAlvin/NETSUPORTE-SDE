@@ -3,6 +3,7 @@ param([Parameter(Mandatory)][string]$DeploymentProfile,[Parameter(Mandatory)][st
  [string]$InstallDirectory="$env:ProgramFiles\SDE-Suporte\Agent",[int]$Port=7443,[switch]$NoStartup,[switch]$NonInteractive,
  [string]$BinaryDirectory='', [switch]$NoSeparateUninstall)
 $ErrorActionPreference='Stop'
+try { Start-Transcript -Path (Join-Path $PayloadDirectory 'agent-setup.log') -Append | Out-Null } catch {}
 try {
  $profile=Get-Content -LiteralPath $DeploymentProfile -Raw -Encoding UTF8 | ConvertFrom-Json
  $permission=$profile.approval.permission
@@ -24,6 +25,13 @@ try {
  if($seal.ExitCode -ne 0) { throw 'Nao foi possivel validar a autorizacao do instalador.' }
  Get-NetFirewallRule -Name SDE-Suporte-Discover-7446 -ErrorAction SilentlyContinue | Remove-NetFirewallRule
  New-NetFirewallRule -Name SDE-Suporte-Discover-7446 -DisplayName 'SDE Suporte - descoberta automatica' -Direction Inbound -Action Allow -Protocol UDP -LocalPort 7446 -Profile Domain,Private -RemoteAddress @($networks | Select-Object -Unique) | Out-Null
+ # The older personalized bootstrapper registered a separate uninstaller. When
+ # migrating that same folder to Inno Setup, keep only the new installer's entry.
+ if($NoSeparateUninstall) {
+  $legacyRegistry='HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SDE-Suporte-Cliente-LAN'
+  $legacy=Get-ItemProperty $legacyRegistry -ErrorAction SilentlyContinue
+  if($legacy.InstallLocation -eq $directory){Remove-Item $legacyRegistry -Recurse -Force}
+ }
  if(-not $NoStartup -and -not $NoSeparateUninstall) {
   $registry='HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SDE-Suporte-Cliente-LAN'
   New-Item $registry -Force | Out-Null
@@ -44,4 +52,6 @@ try {
   [System.Windows.Forms.MessageBox]::Show($_.Exception.Message,'Instalacao nao concluida') | Out-Null
  }
  exit 1
+} finally {
+ try { Stop-Transcript | Out-Null } catch {}
 }

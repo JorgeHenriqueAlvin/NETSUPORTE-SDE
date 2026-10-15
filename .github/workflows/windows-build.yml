@@ -73,8 +73,13 @@ jobs:
         run: |
           $setup = (Resolve-Path release/SDE-Suporte-Cliente-Instalar.exe).Path
           $target = Join-Path $env:RUNNER_TEMP 'SDE-Cliente-Instalado'
-          $install = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$target") -PassThru -Wait
-          if ($install.ExitCode -ne 0) { throw 'Falha na instalacao do cliente.' }
+          $setupLog = Join-Path $env:RUNNER_TEMP 'SDE-Cliente-Setup.log'
+          $install = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$target","/LOG=$setupLog") -PassThru -Wait
+          if ($install.ExitCode -ne 0 -or -not (Test-Path "$target\Agent\agent.json")) {
+            Get-Content $setupLog -ErrorAction SilentlyContinue | Select-Object -Last 100
+            Get-Content "$target\scripts\agent-setup.log" -ErrorAction SilentlyContinue | Select-Object -Last 100
+            throw "Falha na instalacao do cliente, codigo $($install.ExitCode)."
+          }
           if (Test-Path "$target\Technician\SDE-Suporte-Tecnico.exe") { throw 'Cliente recebeu console indevidamente.' }
           $configFile = "$target\Agent\agent.json"
           $original = Get-Content $configFile -Raw | ConvertFrom-Json
@@ -85,10 +90,14 @@ jobs:
           try {
             dotnet run --project tests/SdeSuporte.Tests.csproj -c Release -- installed $configFile
             if ($LASTEXITCODE -ne 0) { throw 'Agente instalado nao respondeu a varredura IP.' }
+            $legacy = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SDE-Suporte-Cliente-LAN'
+            New-Item $legacy -Force | Out-Null
+            New-ItemProperty $legacy -Name InstallLocation -Value "$target\Agent" -PropertyType String -Force | Out-Null
             $upgrade = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$target") -PassThru -Wait
             if ($upgrade.ExitCode -ne 0) { throw 'Atualizacao sobre agente em execucao falhou.' }
             $updated = Get-Content $configFile -Raw | ConvertFrom-Json
             if ($updated.device.id -ne $original.device.id) { throw 'Atualizacao mudou identidade da maquina.' }
+            if (Test-Path $legacy) { throw 'Desinstalador antigo duplicado nao foi migrado.' }
           } finally {
             $agent.Refresh()
             if (-not $agent.HasExited) { Stop-Process -Id $agent.Id -Force }
