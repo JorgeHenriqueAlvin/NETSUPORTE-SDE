@@ -32,7 +32,7 @@ Source: "..\dist\Agent\*"; DestDir: "{app}\package\dist\Agent"; Flags: ignorever
 Source: "..\scripts\Install-Agent.ps1"; DestDir: "{app}\package\scripts"; Components: client
 Source: "..\scripts\Uninstall-Agent.ps1"; DestDir: "{app}\package\scripts"; Components: client
 Source: "..\scripts\Configure-Agent.ps1"; DestDir: "{app}\package\scripts"; Components: client
-Source: "..\scripts\Cleanup-Agent.ps1"; DestDir: "{app}\package\scripts"; Components: client
+Source: "..\scripts\Cleanup-Agent.ps1"; DestDir: "{app}\package\scripts"
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
 Name: "{group}\SDE Suporte - Técnico"; Filename: "{app}\Technician\SDE-Suporte-Tecnico.exe"; Components: technician
