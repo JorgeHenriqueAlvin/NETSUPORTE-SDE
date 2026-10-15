@@ -46,7 +46,7 @@ try {
   $escapedDirectory=$directory.Replace("'","''")
   $command="Start-Process -FilePath powershell.exe -Verb RunAs -Wait -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File `"$escapedScript`" -InstallDirectory `"$escapedDirectory`" -RemoveFiles'"
   $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
-  foreach($entry in @{DisplayName='SDE Suporte - Cliente';DisplayVersion='0.6.0';Publisher='CMTIC/SDE';InstallLocation=$directory;UninstallString="powershell.exe -NoProfile -EncodedCommand $encoded"}.GetEnumerator()) {
+  foreach($entry in @{DisplayName='SDE Suporte - Cliente';DisplayVersion='0.6.1';Publisher='CMTIC/SDE';InstallLocation=$directory;UninstallString="powershell.exe -NoProfile -EncodedCommand $encoded"}.GetEnumerator()) {
    New-ItemProperty $registry -Name $entry.Key -Value $entry.Value -PropertyType String -Force | Out-Null
   }
  }

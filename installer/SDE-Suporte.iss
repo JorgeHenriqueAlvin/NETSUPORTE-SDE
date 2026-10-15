@@ -1,4 +1,4 @@
-#define AppVersion "0.6.0"
+#define AppVersion "0.6.1"
 #ifndef SetupRole
   #define SetupRole "combined"
 #endif
@@ -20,7 +20,7 @@ OutputDir=..\release
 #if SetupRole == "client"
 OutputBaseFilename=SDE-Suporte-Cliente-Instalar
 #elif SetupRole == "technician"
-OutputBaseFilename=SDE-Suporte-Tecnico-Instalar
+OutputBaseFilename=SDE-Suporte-Tecnico-Base
 #else
 OutputBaseFilename=SDE-Suporte-Instalador-Windows-x64
 #endif
@@ -69,9 +69,6 @@ Name: "{autodesktop}\SDE Suporte - Técnico"; Filename: "{app}\Technician\SDE-Su
 #endif
 Name: "{group}\Instruções"; Filename: "{app}\QUICKSTART.md"
 [Run]
-#if SetupRole != "client"
-Filename: "{app}\Technician\SDE-Suporte-Tecnico.exe"; Description: "Abrir console do técnico"; Flags: postinstall nowait runasoriginaluser skipifsilent{#TechnicianComponent}
-#endif
 [UninstallRun]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\Cleanup-Agent.ps1"""; Flags: waituntilterminated; RunOnceId: "CleanupSdeSuporte"
 [UninstallDelete]
@@ -112,6 +109,16 @@ begin
   { Inno processes ordinary Run entries BEFORE ssPostInstall. Start the agent
     only after configuration is complete, under the installing employee. }
   if CurStep = ssDone then begin
+#if SetupRole != "client"
+    if not WizardSilent and not ConfigurationFailed and
+       FileExists(ExpandConstant('{app}\Technician\SDE-Suporte-Tecnico.exe')) then begin
+      if not ExecAsOriginalUser(ExpandConstant('{app}\Technician\SDE-Suporte-Tecnico.exe'),
+        ExpandConstant('--from-setup "{srcexe}"'), ExpandConstant('{app}\Technician'), SW_SHOWNORMAL, ewNoWait, StartResult) then begin
+        ConfigurationFailed := True;
+        RaiseException('Não foi possível abrir o console do técnico. Execute novamente o instalador autorizado.');
+      end;
+    end;
+#endif
 #if SetupRole != "technician"
     if not WizardSilent and not ConfigurationFailed and
        FileExists(ExpandConstant('{app}\Agent\agent.json')) then begin

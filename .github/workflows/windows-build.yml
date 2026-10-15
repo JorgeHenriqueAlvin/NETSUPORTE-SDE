@@ -59,7 +59,11 @@ jobs:
       - name: Testar instalacao e remocao da versao Tecnico
         shell: pwsh
         run: |
-          $setup = (Resolve-Path release/SDE-Suporte-Tecnico-Instalar.exe).Path
+          $base = (Resolve-Path release/SDE-Suporte-Tecnico-Base.exe).Path
+          $setup = Join-Path $env:RUNNER_TEMP 'SDE-Tecnico-Autorizado-Teste.exe'
+          $fixture = Join-Path $env:RUNNER_TEMP 'SDE-Team-Fixture'
+          dotnet run --project tests/SdeSuporte.Tests.csproj -c Release -- package-technician $base $fixture $setup
+          if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar instalador tecnico autorizado de teste.' }
           $target = Join-Path $env:RUNNER_TEMP 'SDE-Suporte-Teste'
           $process = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$target") -PassThru -Wait
           if ($process.ExitCode -ne 0) { throw "Instalacao falhou: $($process.ExitCode)" }
@@ -108,7 +112,7 @@ jobs:
           if (Get-NetFirewallRule -Name SDE-Suporte-LAN-7443 -ErrorAction SilentlyContinue) { throw 'Regra do agente nao removida.' }
       - uses: actions/upload-artifact@v4
         with:
-          name: SDE-Suporte-Instaladores-0.6
+          name: SDE-Suporte-Instaladores-0.6.1
           if-no-files-found: error
           path: |
             release/*.exe

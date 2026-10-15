@@ -10,7 +10,8 @@ public record TeamCredential(TechnicianKey Technician,long Issued,long Expires,s
 public static class TeamAccess
 {
     // The installed client contains only this public authority and an agent-enrollment
-    // delegation. The private team access code is never part of a repository or build.
+    // delegation. Private authorization is packaged separately for the IT installer,
+    // never in public source, public build artifacts, or the client installer.
     static readonly Lazy<DeploymentProfile> bundled=new(()=>{
         using var stream=typeof(TeamAccess).Assembly.GetManifestResourceStream("SdeSuporte.TeamDeployment")
             ??throw new InvalidDataException("Autorização pública da equipe ausente.");

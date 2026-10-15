@@ -86,7 +86,7 @@ sealed class Agent:Form
             var tech=verifier.Verify(H("X-Technician"),H("X-Device"),c.Request.HttpMethod,c.Request.RawUrl??"/",body,H("X-Session"),H("X-Time"),H("X-Nonce"),H("X-Signature"),H("X-Team-Credential"));
             if(tech is null){await Reply(c.Response,403,new{error="Técnico não autorizado. Verifique o código da equipe no console."});return;}
             user=tech.Name;var path=c.Request.Url!.AbsolutePath;var method=c.Request.HttpMethod;
-            if(path=="/info" && method=="GET") {await Reply(c.Response,200,new{config.Device.Id,config.Device.Name,config.Device.Sector,version="0.6.0",available=!unavailable&&Native.DesktopAvailable()});return;}
+            if(path=="/info" && method=="GET") {await Reply(c.Response,200,new{config.Device.Id,config.Device.Name,config.Device.Sector,version="0.6.1",available=!unavailable&&Native.DesktopAvailable()});return;}
             if(path=="/session" && method=="POST")
             {
                 if(session is not null){await Reply(c.Response,409,new{error="Computador já está em atendimento."});return;}

@@ -1,9 +1,6 @@
 name: Publicar instaladores aprovados
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/publish-installers.yml'
   workflow_run:
     workflows: ['Compilar SDE Suporte para Windows']
     types: [completed]
@@ -21,7 +18,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       TRIGGER_RUN: ${{ github.event.workflow_run.id }}
-      RELEASE_TAG: v0.6.0
+      RELEASE_TAG: v0.6.1
     steps:
       - name: Selecionar compilacao Windows aprovada e baixar os instaladores
         shell: bash
@@ -37,9 +34,9 @@ jobs:
           [[ "$conclusion" == 'success' ]]
           build_sha=$(gh api "repos/$GH_REPO/actions/runs/$run_id" --jq '.head_sha')
           echo "BUILD_SHA=$build_sha" >> "$GITHUB_ENV"
-          gh run download "$run_id" --repo "$GH_REPO" --name SDE-Suporte-Instaladores-0.6 --dir package
+          gh run download "$run_id" --repo "$GH_REPO" --name SDE-Suporte-Instaladores-0.6.1 --dir package
           test -s package/release/SDE-Suporte-Cliente-Instalar.exe
-          test -s package/release/SDE-Suporte-Tecnico-Instalar.exe
+          test -s package/release/SDE-Suporte-Tecnico-Base.exe
       - name: Publicar arquivos com download direto
         shell: bash
         run: |
@@ -48,7 +45,7 @@ jobs:
           Dois instaladores Windows x64, sem dependência de domínio:
 
           - **Cliente:** instale nos computadores dos funcionários. A configuração é automática.
-          - **Técnico:** instale nos computadores da TI. Na primeira abertura, informe o nome e o código privado da equipe, entregue separadamente.
+          - **Técnico:** use o instalador autorizado fornecido de forma privada à TI. Ele configura a autorização e o nome do usuário automaticamente, sem pedir código.
 
           O console encontra os agentes automaticamente e permite varredura por rede ou faixa de IP. Novos técnicos da mesma equipe não exigem reinstalação dos clientes. Computadores com agente 0.5 ou anterior precisam receber esta versão uma vez.
 
@@ -56,10 +53,10 @@ jobs:
 
           O funcionário precisa estar conectado e com o Windows desbloqueado. Entre VLANs, permita TCP 7443. Consulte QUICKSTART.md para a faixa de IP e os demais detalhes.
 
-          O código privado da equipe não acompanha os instaladores nem está publicado neste repositório.
+          O arquivo Técnico-Base é somente um modelo de compilação. O instalador técnico já autorizado é distribuído privadamente pela TI e não é um download público. Clientes 0.6 continuam compatíveis.
           NOTES
           if ! gh release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" --repo "$GH_REPO" --target "$BUILD_SHA" --title 'SDE Suporte 0.6 — Técnico e Cliente' --notes-file notes.md
+            gh release create "$RELEASE_TAG" --repo "$GH_REPO" --target "$BUILD_SHA" --title 'SDE Suporte 0.6.1 — autorização automática para técnicos' --notes-file notes.md
           else
             tag_sha=$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')
             if [[ "$tag_sha" != "$BUILD_SHA" ]]; then
@@ -67,4 +64,4 @@ jobs:
               exit 1
             fi
           fi
-          gh release upload "$RELEASE_TAG" --repo "$GH_REPO" --clobber package/release/SDE-Suporte-Cliente-Instalar.exe package/release/SDE-Suporte-Tecnico-Instalar.exe package/QUICKSTART.md
+          gh release upload "$RELEASE_TAG" --repo "$GH_REPO" --clobber package/release/SDE-Suporte-Cliente-Instalar.exe package/release/SDE-Suporte-Tecnico-Base.exe package/QUICKSTART.md

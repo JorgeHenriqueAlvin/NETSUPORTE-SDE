@@ -5,6 +5,7 @@
  <ItemGroup><Compile Include="../src/Enrollment.cs" Link="Enrollment.cs" /><Compile Include="../src/Discovery.cs" Link="Discovery.cs" /><Compile Include="../src/Technician.cs" Link="Technician.cs" /><Compile Include="../src/Protocol.cs" Link="Protocol.cs" /></ItemGroup>
  <ItemGroup>
   <Compile Include="../src/TeamAccess.cs" Link="TeamAccess.cs" />
+  <Compile Include="../src/TechnicianSetup.cs" Link="TechnicianSetup.cs" />
   <Compile Include="../src/NetworkScanner.cs" Link="NetworkScanner.cs" />
   <EmbeddedResource Include="../src/TeamDeployment.json" LogicalName="SdeSuporte.TeamDeployment" />
  </ItemGroup>

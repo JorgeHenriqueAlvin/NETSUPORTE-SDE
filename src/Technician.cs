@@ -42,7 +42,7 @@ sealed class Technician:Form
         Add("Atualizar máquinas",async()=>{if(discovery is not null)await discovery.Search();await ScanLocal();});
         Add("Varredura de IP",ChooseScan);
         Add("Parar varredura",()=>{scanning?.Cancel();return Task.CompletedTask;});
-        Add("Equipe",()=>{MessageBox.Show($"Equipe: {TeamAccess.Root.Name}\nTécnico: {identity.Public.Name}\n\nInstale a versão Técnico nos outros computadores e informe o mesmo código da equipe uma vez.\nOs clientes usam o instalador Cliente, sem configuração adicional.","Equipe autorizada");return Task.CompletedTask;});
+        Add("Equipe",()=>{MessageBox.Show($"Equipe: {TeamAccess.Root.Name}\nTécnico: {identity.Public.Name}\n\nUse o instalador Técnico autorizado nos computadores da TI. Ele configura a autorização automaticamente.\nOs funcionários usam o instalador Cliente.","Equipe autorizada");return Task.CompletedTask;});
         var advanced=new ContextMenuStrip();
         void Advanced(string label,Action action)=>advanced.Items.Add(label,null,async(_,_)=>await Safe(()=>{action();return Task.CompletedTask;}));
         Advanced("Importar equipe antiga (.sdeteam)",ImportTeam);Advanced("Exportar identificação antiga",ExportIdentity);
@@ -141,20 +141,8 @@ sealed class Technician:Form
         }catch(OperationCanceledException){if(!closing)scanStatus.Text="Varredura interrompida.";}
         finally{scanning=null;}
     }
-    TechnicianIdentity LoadIdentity()
-    {
-        var path=Path.Combine(folder,"identity.json");
-        string name,keyName;
-        if(File.Exists(path)){var data=Json.Read<LocalIdentity>(path);name=data.Name;keyName=data.KeyName;}
-        else
-        {
-            name=NameDialog.Ask("Identificação do técnico","Nome que aparecerá no computador atendido",Environment.UserName)??throw new OperationCanceledException("Criação da identificação cancelada.");
-            keyName="SDE-Suporte-"+Guid.NewGuid().ToString("N");
-            using var created=CngKey.Create(CngAlgorithm.ECDsaP256,keyName,new CngKeyCreationParameters{ExportPolicy=CngExportPolicies.None});
-            Json.Write(path,new LocalIdentity(name,keyName));
-        }
-        return new(new ECDsaCng(CngKey.Open(keyName)),name);
-    }
+    TechnicianIdentity LoadIdentity()=>TechnicianProfiles.Load(folder,()=>NameDialog.Ask("Identificação do técnico","Nome que aparecerá no computador atendido",Environment.UserName)
+        ??throw new OperationCanceledException("Criação da identificação cancelada."));
     void ImportTeam()
     {
         using var open=new OpenFileDialog{Filter="Equipe SDE (*.sdeteam)|*.sdeteam"};if(open.ShowDialog()!=DialogResult.OK)return;
@@ -254,7 +242,6 @@ sealed class Technician:Form
         if(clamp)return new Point(Math.Clamp(px,0,image.Width-1),Math.Clamp(py,0,image.Height-1));
         return px>=0&&py>=0&&px<image.Width&&py<image.Height?new Point(px,py):null;
     }
-    record LocalIdentity(string Name,string KeyName);
 }
 sealed class RemoteScreen:PictureBox
 {

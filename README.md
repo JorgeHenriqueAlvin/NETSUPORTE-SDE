@@ -1,19 +1,23 @@
-# SDE Suporte 0.6 — rede local Windows
+# SDE Suporte 0.6.1 — técnico autorizado sem código
 
 Suporte remoto interno com dois instaladores: **Técnico** e **Cliente**. Não exige Active Directory, domínio, servidor externo ou exportação de identificações entre computadores.
 
 ## Instalação para uso diário
 
-1. Nos computadores da equipe de TI, execute **SDE-Suporte-Tecnico-Instalar.exe**.
-2. Na primeira abertura do console, informe o nome do técnico e cole o **código privado da equipe**, entregue separadamente pelo administrador. O mesmo código serve para os técnicos autorizados; ele é informado uma vez por conta do Windows.
-3. Nos computadores dos funcionários, execute **SDE-Suporte-Cliente-Instalar.exe**. A configuração é automática. O código privado não é necessário no cliente.
-4. Deixe o console aberto. As máquinas da equipe aparecem na lista; selecione uma e clique em **Conectar**.
+1. Nos computadores da TI, execute **SDE-Suporte-Tecnico-Autorizado.exe**, entregue privadamente à equipe.
+2. Conclua a instalação interativa. O console abre já autorizado, usando o nome do técnico existente ou o usuário do Windows.
+3. Nos funcionários, execute **SDE-Suporte-Cliente-Instalar.exe**. A configuração é automática.
+4. No console, selecione a máquina encontrada e clique em **Conectar**.
 
-O cliente inicia ao concluir uma instalação interativa e nos próximos logins do Windows. Ele apresenta um ícone de disponibilidade e, durante o atendimento, um aviso com **nome do técnico e horário de início**. O funcionário não recebe o console de administração.
+**Não há código para digitar, troca de arquivos de identificação nem geração de instaladores pelo técnico.** O mesmo instalador autorizado serve para os computadores da equipe.
 
-**Não é necessário gerar instaladores no console, importar arquivos de equipe ou reinstalar os clientes para adicionar outro técnico.** Para adicionar um técnico, instale o console e informe o código da mesma equipe.
+A autorização é criada na conta Windows que iniciou a instalação, usando a chave pessoal não exportável dessa conta. Nos próximos acessos, o atalho abre normalmente. O instalador não precisa permanecer no computador depois da primeira abertura bem-sucedida do console.
 
-Computadores com a versão 0.5 ou anterior precisam receber o novo instalador Cliente uma vez para migrar da lista individual para a autorização da equipe.
+Clientes **0.6 continuam compatíveis** e não precisam ser reinstalados por esta mudança. Clientes 0.5 ou anteriores precisam receber o instalador Cliente atualizado uma vez.
+
+O funcionário vê um ícone de disponibilidade e, durante o atendimento, o nome do técnico e o horário de início. Ele não recebe o console de administração.
+
+O arquivo Técnico-Autorizado possui a autorização da equipe e é distribuído somente à TI por canal privado. O repositório público contém o código-fonte, o Cliente e o modelo **Técnico-Base**, sem autorização privada.
 
 ## Descoberta e varredura de IP
 
@@ -31,13 +35,13 @@ Entre VLANs, o roteamento e os equipamentos de rede precisam permitir TCP 7443 e
 
 ## Autorização e identificação
 
-Cada conta de técnico mantém sua própria chave ECDSA P-256 não exportável no armazenamento CNG do Windows. O código da equipe emite uma credencial que vincula essa chave ao nome informado. O console guarda apenas a credencial pública; não guarda o código da equipe.
+Cada conta de técnico mantém sua própria chave ECDSA P-256 não exportável no armazenamento CNG do Windows. O instalador autorizado emite automaticamente uma credencial que vincula essa chave ao usuário do Windows. O perfil instalado guarda apenas a credencial pública e a referência à chave pessoal; a autorização privada permanece somente no arquivo de instalação da TI.
 
 O agente confia na autoridade pública da equipe distribuída pelo instalador. Assim, um técnico novo pode conectar com sua própria chave e credencial sem alterar a configuração de cada cliente. Toda operação de suporte exige assinatura, horário válido e nonce não reutilizado. As sessões vinculam o token ao técnico e ao computador.
 
 A descoberta HTTPS transporta apenas identificação pública assinada. Antes de incluir uma máquina, o console confere a autoridade da equipe e compara o certificado apresentado na conexão com o certificado assinado no cadastro do agente. A verificação de presença e todas as operações posteriores usam HTTPS com pinagem estrita.
 
-**O código privado da equipe não está no código-fonte nem nos instaladores.** Entregue-o somente aos técnicos autorizados. Quem possui o código pode autorizar um console; nomes são declarados pelos integrantes da equipe. A credencial individual tem validade de cinco anos. Para retirar o acesso de alguém que conhece o código compartilhado, é necessário rotacionar a autoridade e redistribuir a configuração da equipe; não existe revogação central individual nesta versão.
+**Quem possui o instalador Técnico-Autorizado pode autorizar um console da equipe.** Distribua esse arquivo somente à TI. Ele não é publicado nos artefatos públicos nem nas versões públicas do GitHub. A credencial pessoal tem validade de cinco anos. Não há revogação central individual nesta versão; retirar o acesso de alguém que possui o instalador exige rotacionar a autoridade e redistribuir a configuração.
 
 `src/TeamDeployment.json` contém a autoridade **pública** e uma delegação limitada a cadastrar agentes. A chave dessa delegação permite instalar novos clientes, mas não assinar credenciais de técnicos nem controlar máquinas. A autorização pública dos instaladores desta equipe vence em outubro de 2036.
 
@@ -63,4 +67,6 @@ Em Windows x64 com .NET SDK 10 e Inno Setup 6:
 
 O workflow Windows compila aplicativos autocontidos, verifica assinaturas e rejeição de acessos indevidos, usa captura e entrada reais, encontra o agente por UDP e IP e conecta seis identidades novas ao mesmo cliente sem reinstalá-lo. Também testa instalação/remoção dos dois EXEs e atualização de um cliente em execução, preservando sua identidade. As credenciais dos testes são descartáveis e não entram no artefato publicado.
 
-O pacote para download contém somente os dois instaladores e estas instruções.
+O pacote público contém o Cliente, o modelo Técnico-Base e as instruções. O instalador Técnico-Autorizado é gerado privadamente com scripts/Authorize-Technician-Installer.py e entregue apenas à TI. O script recebe caminhos de arquivos, verifica a autorização da equipe e não imprime os dados privados.
+
+Os testes verificam o instalador personalizado no Windows, a autorização automática de seis perfis, a preservação da identidade ao reinstalar, a conexão real de um perfil provisionado automaticamente e a rejeição de instaladores adulterados ou de outra equipe.

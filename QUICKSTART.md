@@ -1,39 +1,34 @@
-# SDE Suporte 0.6 — começar
+# SDE Suporte 0.6.1 — instalar e conectar
 
-## No seu computador e nos outros cinco técnicos
+## Nos computadores dos técnicos
 
-1. Execute **SDE-Suporte-Tecnico-Instalar.exe** e conclua a instalação.
-2. Abra **SDE Suporte - Técnico**, pelo atalho da Área de Trabalho.
-3. Informe seu nome.
-4. Cole o **código privado da equipe** entregue separadamente. O mesmo código funciona para os técnicos autorizados e só é solicitado na primeira abertura de cada conta do Windows.
+1. Use **SDE-Suporte-Tecnico-Autorizado.exe**, entregue privadamente à equipe de TI.
+2. Execute o instalador normalmente e conclua a instalação.
+3. O console abre automaticamente, já autorizado, com a identificação do usuário do Windows.
+4. As máquinas com o agente da equipe aparecem na lista. Selecione uma e clique em **Conectar**.
+
+Não é necessário digitar código, importar identificações ou preparar outro instalador de cliente. Use esse mesmo instalador autorizado nos cinco computadores dos técnicos.
+
+O nome exibido ao funcionário é o nome do perfil de técnico existente ou, em uma instalação nova, o usuário do Windows. Nos próximos acessos, abra o atalho **SDE Suporte - Técnico**.
 
 ## Nos computadores dos funcionários
 
 1. Execute **SDE-Suporte-Cliente-Instalar.exe** com permissão de administrador.
-2. Conclua a instalação. Não escolha técnicos, não importe arquivos e não informe o código da equipe.
-3. O agente fica disponível e volta a iniciar nos próximos logins do Windows.
+2. Conclua a instalação. A configuração é automática.
+3. O agente inicia após a instalação interativa e nos próximos logins do Windows.
 
-O mesmo instalador Cliente serve para todos os computadores da equipe. Ao adicionar outro técnico, não é necessário reinstalar os clientes.
+Clientes da versão **0.6 continuam funcionando** com os novos técnicos, sem reinstalação. Somente clientes 0.5 ou anteriores precisam receber o novo instalador Cliente uma vez.
 
-Se já instalou o agente 0.5 ou anterior, execute este novo instalador Cliente uma vez em cada computador para migrar a autorização.
+## Buscar outra rede ou faixa
 
-## Para conectar
+A lista usa descoberta automática e varredura de IP. Clique em **Varredura de IP** para informar outra rede ou uma faixa, como `10.37.2.0/23` ou `10.37.2.1-10.37.3.254`. O botão **Parar varredura** interrompe a busca.
 
-1. Abra o console. A lista é preenchida automaticamente.
-2. Selecione o computador e clique em **Conectar**.
-3. O funcionário verá o nome de quem está atendendo e o horário.
-4. Ao terminar, clique em **Encerrar**.
+A busca inicial usa até /22 por interface. São aceitos até 65.536 IPs privados por pesquisa. Entre VLANs, permita TCP 7443 entre técnicos e clientes. A busca não depende de ping.
 
-O funcionário deve estar conectado ao Windows e com a área de trabalho desbloqueada.
+Para atendimento, o funcionário deve estar conectado e com o Windows desbloqueado. O aviso de atendimento mostra quem está acessando.
 
-## Se a máquina não aparecer
+## Distribuição à TI
 
-1. Confira se o novo agente está instalado e disponível no computador.
-2. Clique em **Atualizar máquinas**.
-3. Clique em **Varredura de IP** para informar a rede, por exemplo `10.37.2.0/23`, ou uma faixa como `10.37.2.1-10.37.3.254`.
-4. Aguarde o progresso dos IPs. O botão **Parar varredura** interrompe a busca.
-5. Entre VLANs, peça a liberação de TCP 7443 entre técnicos e clientes. Não é necessário liberar ping para essa busca.
+O arquivo **Técnico-Autorizado** já concede acesso à equipe e deve ser distribuído somente aos técnicos. Ele é entregue por canal privado e não acompanha o instalador dos funcionários.
 
-A busca inicial pesquisa até /22 por interface. Para uma rede maior, informe a faixa completa em Varredura de IP. São aceitos até 65.536 IPs privados por pesquisa.
-
-**Guarde o código da equipe somente com a TI. Ele não deve acompanhar o instalador entregue aos funcionários.**
+O arquivo **Técnico-Base**, disponível no repositório público, é um modelo para gerar o instalador autorizado; ele não contém a autorização privada. A versão anterior com código permanece como compatibilidade para instalações antigas.

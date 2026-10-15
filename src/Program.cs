@@ -26,6 +26,11 @@ static class Program
             var path=Path.Combine(AppContext.BaseDirectory,"agent.json");
             Application.Run(File.Exists(path)?new Agent(path):new MissingSetup());
 #else
+            if(args.Length==2&&args[0]=="--from-setup")
+            {
+                var grant=TechnicianSetup.Read(args[1],TeamAccess.Root);
+                if(grant is not null)TechnicianProfiles.Authorize(TechnicianProfiles.DefaultDirectory,grant,TeamAccess.Root);
+            }
             Application.Run(new Technician());
 #endif
         }

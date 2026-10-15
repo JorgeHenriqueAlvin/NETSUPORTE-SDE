@@ -28,13 +28,57 @@ static class Tests
                 else Json.Write(Path.Combine(args[1],"deployment.json"),Enrollment.Create(id,[],"Teste"));
                 Json.Write(Path.Combine(args[1],"tecnico.sdetech"),id.Public);File.WriteAllBytes(Path.Combine(args[1],"private-test.pk8"),id.ExportPrivate());return 0;
             }
-            if(args[0]=="protocol") {Protocol();EnrollmentTests();TeamTests();RangeTests();return 0;}
+            if(args[0]=="protocol") {Protocol();EnrollmentTests();TeamTests();RangeTests();TechnicianSetupTests();return 0;}
             if(args[0]=="template"){InstallerPackage.CreateTemplate(args[1],args[2],args[3]);return 0;}
             if(args[0]=="package"){using var creator=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Preparador");InstallerPackage.Personalize(args[1],args[2],Enrollment.Create(creator,[],"Teste"));return 0;}
             if(args[0]=="live-team"){await LiveTeam(args[1],args[2]);return 0;}
             if(args[0]=="installed"){await Installed(args[1]);return 0;}
+            if(args[0]=="package-technician"){
+                var root=Json.Read<TechnicianKey>(Path.Combine(args[2],"team-root.json"));
+                TechnicianSetup.Create(args[1],args[3],File.ReadAllText(Path.Combine(args[2],"root-test.code")),root);
+                Check(TechnicianSetup.Read(args[3],root) is not null,"instalador Inno recebeu autorizacao embutida valida");return 0;
+            }
             await Live(args[1],args[2]);return 0;
         }catch(Exception e){Console.Error.WriteLine(e);return 1;}
+    }
+    static void TechnicianSetupTests()
+    {
+        var directory=Path.Combine(Path.GetTempPath(),"SDE-Tech-Setup-Test-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(directory);
+        var profiles=new List<string>();
+        try
+        {
+            using var key=ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            string code=TeamAccess.EncodeCode(key.ExportParameters(true).D!);
+            using var root=new TechnicianIdentity(key,"Equipe de teste");
+            string source=Path.Combine(directory,"base.exe"),package=Path.Combine(directory,"authorized.exe");
+            byte[] stub=new byte[2048];RandomNumberGenerator.Fill(stub);stub[0]=0x4d;stub[1]=0x5a;File.WriteAllBytes(source,stub);
+            Check(TechnicianSetup.Read(source,root.Public) is null,"modelo publico nao contem autorizacao privada");
+            TechnicianSetup.Create(source,package,code,root.Public);
+            var grant=TechnicianSetup.Read(package,root.Public)!;Check(grant.TeamId==root.Public.Id,"autorizacao automatica reconhece a equipe");
+            for(int i=0;i<6;i++)
+            {
+                var folder=Path.Combine(directory,"profile-"+i);profiles.Add(folder);
+                TechnicianProfiles.Authorize(folder,grant,root.Public);
+                using var identity=TechnicianProfiles.Load(folder,()=>throw new Exception("Nao deve pedir nome nem codigo."));
+                var credential=Json.Read<TeamCredential>(Path.Combine(folder,"team-credential.json"));
+                Check(TeamAccess.Verify(credential,root.Public)?.Id==identity.Public.Id,"tecnico "+(i+1)+" autorizado automaticamente pelo instalador");
+                Check(identity.Public.Name==Environment.UserName,"identificacao automatica usa usuario do Windows");
+                TechnicianProfiles.Authorize(folder,grant,root.Public);
+                using var reopened=TechnicianProfiles.Load(folder,()=>throw new Exception("Nao deve perguntar ao reabrir."));
+                Check(reopened.Public.Id==identity.Public.Id,"reinstalacao preserva identidade do tecnico");
+                Check(!Directory.GetFiles(folder).Any(f=>File.ReadAllText(f).Contains(code)),"perfil instalado nao guarda a autorizacao privada do instalador");
+            }
+            using var other=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Outra equipe");
+            try{TechnicianSetup.Read(package,other.Public);throw new Exception("outra equipe aceita");}catch(InvalidDataException){Console.WriteLine("OK: instalador de outra equipe rejeitado");}
+            try{TechnicianSetup.Validate(grant with{Expires=DateTimeOffset.UtcNow.AddMinutes(-1)},root.Public);throw new Exception("autorizacao expirada aceita");}catch(InvalidDataException){Console.WriteLine("OK: autorizacao expirada rejeitada");}
+            using(var altered=File.OpenWrite(package)){altered.Position=100;altered.WriteByte((byte)(stub[100]^0xff));}
+            try{TechnicianSetup.Read(package,root.Public);throw new Exception("instalador alterado aceito");}catch(InvalidDataException){Console.WriteLine("OK: alteracao do executavel invalida instalador autorizado");}
+        }
+        finally
+        {
+            foreach(var profile in profiles)try{using var data=JsonDocument.Parse(File.ReadAllText(Path.Combine(profile,"identity.json")));using var key=CngKey.Open(data.RootElement.GetProperty("keyName").GetString()!);key.Delete();}catch{}
+            Directory.Delete(directory,true);
+        }
     }
     static void TeamTests()
     {
@@ -96,6 +140,15 @@ static class Tests
             await client.Start();Check(client.Session?.TechnicianName==technician.Public.Name,"agente real reconhece nome do tecnico "+(i+1));await client.Stop();
         }
         Check(before==File.ReadAllText(configFile),"seis tecnicos conectam sem reinstalar nem alterar configuracao do cliente");
+        var automaticFolder=Path.Combine(fixture,"automatic-profile");
+        var automaticGrant=new TechnicianSetupGrant(root.Id,code,DateTimeOffset.UtcNow.AddYears(1),"");
+        TechnicianProfiles.Authorize(automaticFolder,automaticGrant,root);
+        using(var automatic=TechnicianProfiles.Load(automaticFolder,()=>throw new Exception("Instalador nao deve pedir codigo.")))
+        {
+            automatic.Credential=Json.Read<TeamCredential>(Path.Combine(automaticFolder,"team-credential.json"));
+            using var automaticClient=new RemoteClient(found!,automatic);
+            await automaticClient.Start();Check(automaticClient.Session?.TechnicianName==Environment.UserName,"autorizacao automatica do instalador conecta ao agente com usuario Windows");await automaticClient.Stop();
+        }
         using var unauthorized=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Sem codigo");
         using var denied=new RemoteClient(found!,unauthorized);
         try{using var response=await denied.Request(HttpMethod.Post,"/session");throw new Exception("sem codigo iniciou sessao");}
