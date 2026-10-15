@@ -1,0 +1,38 @@
+name: Compilar SDE Suporte para Windows
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - '.github/workflows/windows-build.yml'
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Compilar os dois aplicativos
+        shell: pwsh
+        run: ./scripts/Build.ps1
+      - name: Conferir assinaturas de executáveis PE
+        shell: pwsh
+        run: |
+          $files = @('dist/Agent/SDE-Suporte-Cliente.exe','dist/Technician/SDE-Suporte-Tecnico.exe')
+          foreach ($file in $files) {
+            $bytes = [IO.File]::ReadAllBytes((Resolve-Path $file))
+            if ($bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a) { throw "PE inválido: $file" }
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SDE-Suporte-Windows-x64
+          if-no-files-found: error
+          path: |
+            dist/
+            scripts/Install-Agent.ps1
+            scripts/Uninstall-Agent.ps1
+            README.md

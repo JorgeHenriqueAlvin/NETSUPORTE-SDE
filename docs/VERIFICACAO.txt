@@ -1,0 +1,15 @@
+Verificação estática — versão 0.2
+
+OK: cliente com entrada dedicada
+OK: identificação autenticada
+OK: política restrita ao grupo
+OK: sessão vinculada à identidade
+OK: aviso visível
+OK: nenhum botão administrativo no agente
+OK: consentimento padrão
+OK: prazo de desconexão
+OK: bloqueio da estação
+OK: TLS sem exceção de confiança
+
+JSON/XML válidos. ZIP íntegro.
+Não executados: compilação C#, PowerShell, GitHub Actions, testes Windows, domínio, captura, entrada, carga e instalação.
