@@ -1,0 +1,26 @@
+name: Validar configuracao HTTPS do piloto
+on:
+  push:
+    paths:
+      - 'pilot/**'
+      - '.github/workflows/winrm-pilot-check.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pilot:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar sintaxe PowerShell
+        shell: powershell
+        run: |
+          Get-ChildItem pilot/*.ps1 | ForEach-Object {
+            $tokens=$null; $errors=$null
+            [Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$tokens,[ref]$errors) | Out-Null
+            if($errors.Count){throw ($errors | Out-String)}
+          }
+      - name: Testar certificado, firewall, confianca HTTPS e remocao
+        shell: powershell
+        run: ./pilot/Test-Pilot.ps1
