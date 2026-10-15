@@ -85,12 +85,11 @@ jobs:
           if ($uninstall.ExitCode -ne 0) { throw 'Falha ao desinstalar agente.' }
       - uses: actions/upload-artifact@v4
         with:
-          name: SDE-Suporte-Windows-x64
+          name: SDE-Suporte-Instalador-0.5
           if-no-files-found: error
           path: |
             release/*.exe
-            dist/
-            scripts/*.ps1
             README.md
+            QUICKSTART.md
 
 
