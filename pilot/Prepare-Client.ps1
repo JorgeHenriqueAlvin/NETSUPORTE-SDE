@@ -66,7 +66,17 @@ if(Test-Path -LiteralPath $stateFile){
   New-WSManInstance winrm/config/Listener -SelectorSet @{Transport='HTTPS';Address="IP:$ClientIPv4"} -ValueSet @{Hostname=$env:COMPUTERNAME;CertificateThumbprint=$cert.Thumbprint;Port=$Port} | Out-Null
   $state.ListenerCreated=$true;$state | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $stateFile -Encoding UTF8
   Restart-Service WinRM -Force
- }catch{throw ('Configuracao incompleta: '+$_.Exception.Message+' | '+$_.InvocationInfo.PositionMessage+'. Execute a remocao do piloto antes de tentar novamente.')}
+ }catch{
+  $failure=$_
+  if($VerbosePreference -eq 'Continue' -and $blocked){
+   foreach($prefix in $blocked){
+    $probeName='SDE-Pilot-Diagnostic-'+[guid]::NewGuid().ToString('N')
+    try{New-NetFirewallRule -Name $probeName -DisplayName $probeName -Direction Inbound -Action Block -Enabled False -Protocol TCP -LocalPort $Port -RemoteAddress $prefix | Out-Null;Write-Verbose ('PREFIXO OK: '+$prefix)}
+    catch{Write-Verbose ('PREFIXO INVALIDO: '+$prefix+' : '+$_.Exception.Message)}
+    finally{Get-NetFirewallRule -Name $probeName -ErrorAction SilentlyContinue | Remove-NetFirewallRule}
+   }
+  }
+  throw ('Configuracao incompleta: '+$failure.Exception.Message+' | '+$failure.InvocationInfo.PositionMessage+'. Execute a remocao do piloto antes de tentar novamente.')}
 }
 $export=Join-Path $ExportDirectory 'Cliente-WinRM.cer'
 Export-Certificate -Cert $cert -FilePath $export -Type CERT -Force | Out-Null
