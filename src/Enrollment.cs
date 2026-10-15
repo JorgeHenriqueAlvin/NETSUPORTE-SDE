@@ -2,15 +2,19 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 namespace SdeSuporte;
-public record EnrollmentPermission(string Id,TechnicianKey Issuer,TechnicianKey[] Technicians,string EnrollmentPublicKey,string Sector,DateTimeOffset Expires);
+public record EnrollmentPermission(string Id,TechnicianKey Issuer,TechnicianKey[] Technicians,string EnrollmentPublicKey,string Sector,DateTimeOffset Expires,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)] bool TeamWide=false);
 public record SignedPermission(EnrollmentPermission Permission,string Signature);
 public record DeploymentProfile(SignedPermission Approval,string EnrollmentPrivateKey);
 public record DeviceEnrollment(Device Device,SignedPermission Approval,string Signature);
 public static class Enrollment
 {
     public static byte[] Bytes<T>(T value)=>JsonSerializer.SerializeToUtf8Bytes(value,Json.Options);
-    public static byte[] PermissionBytes(EnrollmentPermission p)=>Encoding.UTF8.GetBytes("SDE-ENROLLMENT-1\n").Concat(Bytes(p)).ToArray();
+    public static byte[] PermissionBytes(EnrollmentPermission p)=>p.TeamWide
+        ?Encoding.UTF8.GetBytes($"SDE-ENROLLMENT-TEAM-2\n{p.Id}\n{p.Issuer.Id}\n{p.Issuer.Name}\n{p.Issuer.PublicKey}\n{p.EnrollmentPublicKey}\n{p.Sector}\n{p.Expires.ToUnixTimeSeconds()}\n")
+        :Encoding.UTF8.GetBytes("SDE-ENROLLMENT-1\n").Concat(Bytes(p)).ToArray();
     static byte[] DeviceBytes(Device d,EnrollmentPermission p)=>Encoding.UTF8.GetBytes("SDE-DEVICE-1\n").Concat(Bytes(d)).Concat(SHA256.HashData(PermissionBytes(p))).ToArray();
     public static void VerifyPublic(TechnicianKey technician)
     {
@@ -19,13 +23,15 @@ public static class Enrollment
         if(read!=data.Length||k.KeySize!=256||Convert.ToHexString(SHA256.HashData(data))!=technician.Id||string.IsNullOrWhiteSpace(technician.Name)||technician.Name.Length>80||technician.Name.Any(char.IsControl))
             throw new InvalidDataException("Identificação de técnico inválida.");
     }
-    public static DeploymentProfile Create(TechnicianIdentity identity,IEnumerable<TechnicianKey> technicians,string sector)
+    public static DeploymentProfile Create(TechnicianIdentity identity,IEnumerable<TechnicianKey> technicians,string sector,bool teamWide=false)
     {
         var list=technicians.Append(identity.Public).DistinctBy(t=>t.Id).ToArray();
         foreach(var technician in list)VerifyPublic(technician);
         if(string.IsNullOrWhiteSpace(sector)||sector.Length>100)throw new ArgumentException("Informe o setor.");
         using var enrollment=ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var p=new EnrollmentPermission(Guid.NewGuid().ToString(),identity.Public,list,Convert.ToBase64String(enrollment.ExportSubjectPublicKeyInfo()),sector.Trim(),DateTimeOffset.UtcNow.AddYears(2));
+        var issuer=teamWide?identity.Public with{DiscoveryAddresses=null}:identity.Public;
+        if(teamWide)list=[issuer];
+        var p=new EnrollmentPermission(Guid.NewGuid().ToString(),issuer,list,Convert.ToBase64String(enrollment.ExportSubjectPublicKeyInfo()),sector.Trim(),DateTimeOffset.UtcNow.AddYears(2),teamWide);
         return new(new(p,identity.SignDetached(PermissionBytes(p))),Convert.ToBase64String(enrollment.ExportPkcs8PrivateKey()));
     }
     public static void VerifyPermission(SignedPermission approval)
@@ -33,6 +39,7 @@ public static class Enrollment
         var p=approval.Permission;VerifyPublic(p.Issuer);
         if(!Guid.TryParse(p.Id,out _)||p.Expires<=DateTimeOffset.UtcNow||p.Technicians.Length is <1 or >30||string.IsNullOrWhiteSpace(p.Sector)||p.Sector.Length>100)throw new InvalidDataException("Autorização de instalação inválida ou expirada.");
         foreach(var t in p.Technicians)VerifyPublic(t);
+        if(p.TeamWide&&(p.Technicians.Length!=1||p.Technicians[0]!=p.Issuer||p.Issuer.DiscoveryAddresses is not null))throw new InvalidDataException("Política pública da equipe inválida.");
         if(p.Technicians.Select(t=>t.Id).Distinct().Count()!=p.Technicians.Length)throw new InvalidDataException("Técnicos duplicados na autorização.");
         using var issuer=ECDsa.Create();issuer.ImportSubjectPublicKeyInfo(Convert.FromBase64String(p.Issuer.PublicKey),out _);
         if(!issuer.VerifyData(PermissionBytes(p),Convert.FromBase64String(approval.Signature),HashAlgorithmName.SHA256))throw new InvalidDataException("A autorização de instalação foi alterada.");
@@ -51,7 +58,7 @@ public static class Enrollment
     {
         VerifyPermission(enrollment.Approval);
         var p=enrollment.Approval.Permission;
-        if(!trustedIssuers.Contains(p.Issuer.Id)||!p.Technicians.Any(t=>t.Id==technicianId)||p.Sector!=enrollment.Device.Sector)
+        if(!trustedIssuers.Contains(p.Issuer.Id)||(!p.TeamWide&&!p.Technicians.Any(t=>t.Id==technicianId))||p.Sector!=enrollment.Device.Sector)
             throw new InvalidDataException("Computador de equipe não autorizada.");
         enrollment.Device.Validate();
         using var key=ECDsa.Create();key.ImportSubjectPublicKeyInfo(Convert.FromBase64String(p.EnrollmentPublicKey),out _);

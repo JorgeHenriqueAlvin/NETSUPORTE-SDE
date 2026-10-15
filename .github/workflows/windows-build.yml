@@ -28,64 +28,78 @@ jobs:
             [System.Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$tokens,[ref]$errors) | Out-Null
             if ($errors.Count) { throw ($errors | Out-String) }
           }
-      - name: Compilar os dois aplicativos
+      - name: Compilar aplicativos Windows
         shell: pwsh
         run: ./scripts/Build.ps1
-      - name: Preparar modelo do instalador automatico do cliente
+      - name: Preparar pacote de teste e compatibilidade
         shell: pwsh
         run: ./scripts/Build-Template.ps1
-      - name: Testar instalacao automatica, descoberta e suporte remoto
+      - name: Testar instalacao, seis tecnicos, captura real e varredura IP
         shell: pwsh
         run: ./scripts/Test-Windows.ps1
-      - name: Conferir assinaturas de executáveis PE
+      - name: Conferir executaveis PE
         shell: pwsh
         run: |
-          $files = @('dist/Agent/SDE-Suporte-Cliente.exe','dist/Technician/SDE-Suporte-Tecnico.exe')
-          foreach ($file in $files) {
+          foreach ($file in @('dist/Agent/SDE-Suporte-Cliente.exe','dist/Technician/SDE-Suporte-Tecnico.exe')) {
             $bytes = [IO.File]::ReadAllBytes((Resolve-Path $file))
-            if ($bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a) { throw "PE inválido: $file" }
+            if ($bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a) { throw "PE invalido: $file" }
           }
-      - name: Gerar instalador Windows
+      - name: Gerar instaladores independentes de tecnico e cliente
         shell: pwsh
         run: |
-          $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          $compiler = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Inno Setup 6\ISCC.exe'
           if (-not (Test-Path $compiler)) {
             choco install innosetup --yes --no-progress
             if ($LASTEXITCODE -ne 0) { throw 'Falha ao instalar Inno Setup.' }
           }
-          & $compiler installer/SDE-Suporte.iss
-          if ($LASTEXITCODE -ne 0) { throw 'Falha ao gerar instalador.' }
-      - name: Testar instalação e remoção do console
+          foreach ($role in @('technician','client')) {
+            & $compiler "/DSetupRole=$role" installer/SDE-Suporte.iss
+            if ($LASTEXITCODE -ne 0) { throw "Falha ao gerar instalador $role." }
+          }
+      - name: Testar instalacao e remocao da versao Tecnico
         shell: pwsh
         run: |
-          $setup = (Resolve-Path release/SDE-Suporte-Instalador-Windows-x64.exe).Path
+          $setup = (Resolve-Path release/SDE-Suporte-Tecnico-Instalar.exe).Path
           $target = Join-Path $env:RUNNER_TEMP 'SDE-Suporte-Teste'
-          $process = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TYPE=technician',"/DIR=$target") -PassThru -Wait
-          if ($process.ExitCode -ne 0) { throw "Instalação falhou: $($process.ExitCode)" }
-          if (-not (Test-Path "$target\Technician\SDE-Suporte-Tecnico.exe")) { throw 'Console não instalado.' }
-          if (Test-Path "$target\Agent\SDE-Suporte-Cliente.exe") { throw 'Agente instalado indevidamente na seleção de técnico.' }
+          $process = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$target") -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw "Instalacao falhou: $($process.ExitCode)" }
+          if (-not (Test-Path "$target\Technician\SDE-Suporte-Tecnico.exe")) { throw 'Console nao instalado.' }
+          if (Test-Path "$target\Agent\SDE-Suporte-Cliente.exe") { throw 'Versao Tecnico instalou agente indevidamente.' }
           $uninstall = Start-Process "$target\unins000.exe" -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
-          if ($uninstall.ExitCode -ne 0) { throw "Desinstalação falhou: $($uninstall.ExitCode)" }
-          if (Test-Path "$target\Technician\SDE-Suporte-Tecnico.exe") { throw 'Console não removido.' }
-      - name: Testar selecao de agente sem arquivo de configuracao
+          if ($uninstall.ExitCode -ne 0) { throw "Desinstalacao falhou: $($uninstall.ExitCode)" }
+          if (Test-Path "$target\Technician\SDE-Suporte-Tecnico.exe") { throw 'Console nao removido.' }
+      - name: Testar versao Cliente configurada automaticamente e atualizacao
         shell: pwsh
         run: |
-          $setup = (Resolve-Path release/SDE-Suporte-Instalador-Windows-x64.exe).Path
-          $target = Join-Path $env:RUNNER_TEMP 'SDE-Agente-Instalador'
-          $install = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TYPE=client',"/DIR=$target") -PassThru -Wait
-          if ($install.ExitCode -ne 0) { throw 'Falha na instalacao do agente.' }
-          if (-not (Test-Path "$target\Agent\SDE-Suporte-Cliente.exe")) { throw 'Agente ausente.' }
+          $setup = (Resolve-Path release/SDE-Suporte-Cliente-Instalar.exe).Path
+          $target = Join-Path $env:RUNNER_TEMP 'SDE-Cliente-Instalado'
+          $install = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$target") -PassThru -Wait
+          if ($install.ExitCode -ne 0) { throw 'Falha na instalacao do cliente.' }
+          if (Test-Path "$target\Technician\SDE-Suporte-Tecnico.exe") { throw 'Cliente recebeu console indevidamente.' }
+          $configFile = "$target\Agent\agent.json"
+          $original = Get-Content $configFile -Raw | ConvertFrom-Json
+          if (-not $original.enrollment.approval.permission.teamWide) { throw 'Cliente nao foi autorizado automaticamente.' }
+          $startup = (Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name SdeSuporte).SdeSuporte
+          if ($startup -notlike "*$target*") { throw 'Inicio automatico ausente.' }
           $agent = Start-Process "$target\Agent\SDE-Suporte-Cliente.exe" -PassThru
-          Start-Sleep -Seconds 3
-          $agent.Refresh()
-          if ($agent.HasExited) { throw 'Agente falhou ao abrir sem configuracao.' }
-          if ($agent.MainWindowTitle -notlike '*concluir instala*') { throw "Janela inesperada: $($agent.MainWindowTitle)" }
-          Stop-Process -Id $agent.Id -Force
-          $uninstall = Start-Process "$target\unins000.exe" -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
-          if ($uninstall.ExitCode -ne 0) { throw 'Falha ao desinstalar agente.' }
+          try {
+            dotnet run --project tests/SdeSuporte.Tests.csproj -c Release -- installed $configFile
+            if ($LASTEXITCODE -ne 0) { throw 'Agente instalado nao respondeu a varredura IP.' }
+            $upgrade = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$target") -PassThru -Wait
+            if ($upgrade.ExitCode -ne 0) { throw 'Atualizacao sobre agente em execucao falhou.' }
+            $updated = Get-Content $configFile -Raw | ConvertFrom-Json
+            if ($updated.device.id -ne $original.device.id) { throw 'Atualizacao mudou identidade da maquina.' }
+          } finally {
+            $agent.Refresh()
+            if (-not $agent.HasExited) { Stop-Process -Id $agent.Id -Force }
+            $uninstall = Start-Process "$target\unins000.exe" -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
+            if ($uninstall.ExitCode -ne 0) { throw 'Falha ao desinstalar cliente.' }
+          }
+          if (Test-Path "$target\Agent\agent.json") { throw 'Configuracao do cliente nao removida.' }
+          if (Get-NetFirewallRule -Name SDE-Suporte-LAN-7443 -ErrorAction SilentlyContinue) { throw 'Regra do agente nao removida.' }
       - uses: actions/upload-artifact@v4
         with:
-          name: SDE-Suporte-Instalador-0.5
+          name: SDE-Suporte-Instaladores-0.6
           if-no-files-found: error
           path: |
             release/*.exe

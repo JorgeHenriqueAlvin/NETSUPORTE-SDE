@@ -23,3 +23,19 @@ dotnet run --project "$root\tests\SdeSuporte.Tests.csproj" -c Release -- package
 if($LASTEXITCODE -ne 0){throw 'Falha ao personalizar instalador do cliente.'}
 $check=Start-Process $personalized -ArgumentList '--check' -PassThru -Wait
 if($check.ExitCode -ne 0){throw 'Instalador personalizado nao passou na verificacao de pacote.'}
+
+# Test the new team flow independently with disposable credentials, never production codes.
+$teamFixture=Join-Path $env:RUNNER_TEMP 'SDE-Team-Fixture'
+$teamAgent=Join-Path $teamFixture 'Agent'
+dotnet run --project "$root\tests\SdeSuporte.Tests.csproj" -c Release -- prepare-team $teamFixture
+if($LASTEXITCODE -ne 0){throw 'Falha ao preparar equipe de teste.'}
+& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$payload\AutoConfigure-Agent.ps1" -DeploymentProfile "$teamFixture\deployment.json" -PayloadDirectory $payload -InstallDirectory $teamAgent -Port 17443 -NoStartup -NonInteractive
+if($LASTEXITCODE -ne 0){throw 'Instalacao automatica por equipe falhou.'}
+$teamProcess=Start-Process "$teamAgent\SDE-Suporte-Cliente.exe" -PassThru
+try {
+ dotnet run --project "$root\tests\SdeSuporte.Tests.csproj" -c Release -- live-team $teamFixture "$teamAgent\agent.json"
+ if($LASTEXITCODE -ne 0){throw 'Varredura de IP e acesso dos seis tecnicos falharam.'}
+}finally{
+ if(-not $teamProcess.HasExited){Stop-Process -Id $teamProcess.Id -Force}
+ & "$PSScriptRoot\Uninstall-Agent.ps1" -InstallDirectory $teamAgent
+}

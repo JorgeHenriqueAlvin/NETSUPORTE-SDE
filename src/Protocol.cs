@@ -31,6 +31,7 @@ public sealed class TechnicianIdentity : IDisposable
     readonly ECDsa key;
     readonly object keyLock = new();
     public TechnicianKey Public { get; }
+    public TeamCredential? Credential {get;set;}
     public TechnicianIdentity(ECDsa key,string name)
     {
         this.key=key;
@@ -50,10 +51,12 @@ public sealed class RequestVerifier
 {
     readonly Dictionary<string,TechnicianKey> allowed;
     readonly string device;
+    readonly TechnicianKey? teamRoot;
     readonly ConcurrentDictionary<string,long> seen=new();
-    public RequestVerifier(IEnumerable<TechnicianKey> technicians,string device)
+    public RequestVerifier(IEnumerable<TechnicianKey> technicians,string device,TechnicianKey? teamRoot=null)
     {
-        allowed=new(StringComparer.Ordinal);this.device=device;
+        allowed=new(StringComparer.Ordinal);this.device=device;this.teamRoot=teamRoot;
+        if(teamRoot is not null)Enrollment.VerifyPublic(teamRoot);
         foreach(var t in technicians)
         {
             var pub=Convert.FromBase64String(t.PublicKey);
@@ -64,10 +67,12 @@ public sealed class RequestVerifier
         }
         if(allowed.Count==0) throw new InvalidDataException("Autorize pelo menos um técnico na instalação.");
     }
-    public TechnicianKey? Verify(string id,string deviceId,string method,string path,byte[] body,string session,string time,string nonce,string signature)
+    public TechnicianKey? Verify(string id,string deviceId,string method,string path,byte[] body,string session,string time,string nonce,string signature,string credential="")
     {
         long now=DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        if(deviceId!=device || !allowed.TryGetValue(id,out var t) || !long.TryParse(time,out var stamp) || stamp<now-45 || stamp>now+45
+        allowed.TryGetValue(id,out var t);
+        if(t is null&&teamRoot is not null)t=TeamAccess.Verify(TeamAccess.Decode(credential),teamRoot);
+        if(deviceId!=device || t is null || t.Id!=id || !long.TryParse(time,out var stamp) || stamp<now-45 || stamp>now+45
             || nonce.Length!=32 || !nonce.All(Uri.IsHexDigit) || signature.Length>256) return null;
         try
         {
@@ -112,6 +117,7 @@ public sealed class RemoteClient : IDisposable
         using var request=new HttpRequestMessage(method,path);
         request.Headers.Add("X-Device",deviceId);request.Headers.Add("X-Technician",identity.Public.Id); request.Headers.Add("X-Time",time); request.Headers.Add("X-Nonce",nonce);
         request.Headers.Add("X-Session",session);
+        if(identity.Credential is not null)request.Headers.Add("X-Team-Credential",TeamAccess.Encode(identity.Credential));
         request.Headers.Add("X-Signature",identity.Sign(method.Method,path,body,session,time,nonce,deviceId));
         if(value is not null) { request.Content=new ByteArrayContent(body); request.Content.Headers.ContentType=new("application/json"); }
         var response=await http.SendAsync(request);

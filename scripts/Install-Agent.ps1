@@ -35,10 +35,10 @@ if ([Uri]::CheckHostName($ConnectionHost) -eq 'Unknown' -or $ConnectionHost -mat
 New-Item -ItemType Directory -Path $InstallDirectory -Force | Out-Null
 & icacls.exe $InstallDirectory /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel proteger a pasta do agente.' }
-if ($BinaryDirectory) { Copy-Item -Path "$BinaryDirectory\*" -Destination $InstallDirectory -Recurse -Force }
 $exe=Join-Path $InstallDirectory 'SDE-Suporte-Cliente.exe'
-if (-not (Test-Path -LiteralPath $exe)) { throw 'Instale o aplicativo antes de configurar.' }
 Get-CimInstance Win32_Process -Filter "Name='SDE-Suporte-Cliente.exe'" | Where-Object ExecutablePath -eq $exe | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+if ($BinaryDirectory -and [IO.Path]::GetFullPath($BinaryDirectory).TrimEnd('\') -ine [IO.Path]::GetFullPath($InstallDirectory).TrimEnd('\')) { Copy-Item -Path "$BinaryDirectory\*" -Destination $InstallDirectory -Recurse -Force }
+if (-not (Test-Path -LiteralPath $exe)) { throw 'Instale o aplicativo antes de configurar.' }
 $appid='{c43a8ff9-42a4-4de1-9c45-6a49b6c9f27d}'
 $binding=(& netsh.exe http show sslcert "ipport=0.0.0.0:$Port" | Out-String)
 if ($binding -match '[0-9a-fA-F]{40}') {

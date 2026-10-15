@@ -1,60 +1,66 @@
-# SDE Suporte LAN — 0.5.0
+# SDE Suporte 0.6 — rede local Windows
 
-Aplicativos Windows x64 para acesso remoto na rede local. Esta versão dispensa domínio, Active Directory, grupos corporativos e emissão manual de certificado. O cliente recebe atendimento e vê uma faixa com o nome aprovado do técnico e a hora de início; o console pertence ao técnico.
+Suporte remoto interno com dois instaladores: **Técnico** e **Cliente**. Não exige Active Directory, domínio, servidor externo ou exportação de identificações entre computadores.
 
-## Instalação automática
+## Instalação para uso diário
 
-1. Instale a versão 0.5 do console pelo instalador geral, escolhendo Console do técnico.
-2. Abra o console e clique em **Gerar instalador do cliente**. Informe o setor, inclua outros técnicos se necessário e salve o executável. Você faz isso uma vez por setor/equipe.
-3. Execute o instalador gerado nos computadores dos funcionários. Confirme a instalação como administrador. O agente inicia na sessão normal do funcionário.
-4. Com o console aberto, os computadores aparecem automaticamente como **Conectado**. Selecione um deles e clique em **Conectar** para atender.
+1. Nos computadores da equipe de TI, execute **SDE-Suporte-Tecnico-Instalar.exe**.
+2. Na primeira abertura do console, informe o nome do técnico e cole o **código privado da equipe**, entregue separadamente pelo administrador. O mesmo código serve para os técnicos autorizados; ele é informado uma vez por conta do Windows.
+3. Nos computadores dos funcionários, execute **SDE-Suporte-Cliente-Instalar.exe**. A configuração é automática. O código privado não é necessário no cliente.
+4. Deixe o console aberto. As máquinas da equipe aparecem na lista; selecione uma e clique em **Conectar**.
 
-Não é preciso exportar um arquivo de cada computador, digitar IP nem configurar certificados. O funcionário vê o nome do técnico e a hora do atendimento, sem painel administrativo.
+O cliente inicia ao concluir uma instalação interativa e nos próximos logins do Windows. Ele apresenta um ícone de disponibilidade e, durante o atendimento, um aviso com **nome do técnico e horário de início**. O funcionário não recebe o console de administração.
 
-Para outros técnicos incluídos no instalador: cada um importa o arquivo `.sdeteam` gerado ao lado do instalador uma única vez no seu console. Depois a descoberta das máquinas autorizadas é automática. O nome/identidade de cada técnico permanece individual.
+**Não é necessário gerar instaladores no console, importar arquivos de equipe ou reinstalar os clientes para adicionar outro técnico.** Para adicionar um técnico, instale o console e informe o código da mesma equipe.
 
-A descoberta usa UDP 7445/7446. Na mesma sub-rede, o console procura por broadcast. Os agentes também anunciam sua presença nos endereços dos técnicos registrados no instalador. Outras VLANs precisam permitir essas portas e a conexão TCP 7443. Reserva de DHCP/IP ou nome DNS estável para os computadores dos técnicos facilita a descoberta entre VLANs.
+Computadores com a versão 0.5 ou anterior precisam receber o novo instalador Cliente uma vez para migrar da lista individual para a autorização da equipe.
 
-O executável gerado autoriza cadastrar máquinas nessa equipe; distribua-o pela TI. Ele não contém a chave privada de controle remoto do técnico. Apenas instalar um agente genérico não autoriza qualquer pessoa da rede a acessá-lo.
+## Descoberta e varredura de IP
 
-Esta versão exige funcionário conectado ao Windows e tela desbloqueada. Os testes automatizados não substituem um teste entre duas máquinas da empresa.
+- O console envia descoberta UDP autenticada a cada cinco segundos.
+- Ao abrir, também pesquisa os IPs das redes privadas locais pela porta **TCP 7443**, sem depender de ping ou broadcast.
+- A busca inicial usa a máscara da interface até o limite de **/22 por interface**. Por exemplo, uma interface /23 pesquisa seus 510 endereços de host.
+- Para pesquisar uma rede maior, outra VLAN ou uma faixa específica, clique em **Varredura de IP**. Exemplos: `10.37.2.0/23`, `10.37.2.1-10.37.3.254`. Separe várias faixas com ponto e vírgula.
+- A faixa escolhida é lembrada neste console e repetida a cada dois minutos. O console verifica a presença dos agentes já conhecidos durante o uso.
+- Há progresso, filtro por nome/setor/IP e botão **Parar varredura**.
+- Cada pesquisa admite até 65.536 endereços privados e 32 consultas simultâneas.
+- A lista reconhece **agentes SDE da equipe instalados**, não qualquer aparelho da rede. A varredura não instala agentes remotamente.
+- Não há teste de capacidade com 400 computadores reais ou sessões simultâneas em grande escala.
 
-## Descoberta e cadastro
+Entre VLANs, o roteamento e os equipamentos de rede precisam permitir TCP 7443 entre técnicos e clientes. A varredura HTTPS funciona mesmo se os broadcasts UDP forem bloqueados. Para descoberta UDP, permita UDP 7446 no cliente e UDP 7445 no console. Os instaladores criam as regras locais de firewall para perfis Privado/Domínio e endereços internos.
 
-O console mostra presença online após verificar o agente por HTTPS com a identidade de certificado cadastrada. Computadores que deixam de responder ficam como Desconectado após aproximadamente 25 segundos. A descoberta não inicia uma sessão de tela sozinha: o técnico seleciona a máquina e inicia o atendimento.
+## Autorização e identificação
 
-O instalador personalizado contém uma autorização de cadastro assinada pelo técnico que o preparou e uma chave limitada a cadastrar computadores para a lista de técnicos/um setor. O agente recebe uma credencial de cadastro vinculada ao seu certificado. Anúncios adulterados ou emitidos por equipes não confiáveis são recusados; a chave privada de controle remoto dos técnicos não vai para o instalador. O console pode gerar esse executável sem SDK, PowerShell extra ou compilador instalado no computador do técnico.
+Cada conta de técnico mantém sua própria chave ECDSA P-256 não exportável no armazenamento CNG do Windows. O código da equipe emite uma credencial que vincula essa chave ao nome informado. O console guarda apenas a credencial pública; não guarda o código da equipe.
 
-Na instalação normal, o agente inicia depois da elevação com a conta original do funcionário. Também inicia no próximo login. Sua configuração e certificados são gerados automaticamente. A opção manual do instalador geral continua disponível para configuração avançada e compatibilidade com a versão anterior.
+O agente confia na autoridade pública da equipe distribuída pelo instalador. Assim, um técnico novo pode conectar com sua própria chave e credencial sem alterar a configuração de cada cliente. Toda operação de suporte exige assinatura, horário válido e nonce não reutilizado. As sessões vinculam o token ao técnico e ao computador.
 
-## Identificação e autorização
+A descoberta HTTPS transporta apenas identificação pública assinada. Antes de incluir uma máquina, o console confere a autoridade da equipe e compara o certificado apresentado na conexão com o certificado assinado no cadastro do agente. A verificação de presença e todas as operações posteriores usam HTTPS com pinagem estrita.
 
-Sem domínio, o nome exibido é o nome da identificação que a TI aprovou no agente. Não é consultado no login corporativo. Uma requisição não pode trocar esse nome: o agente obtém o nome da sua própria lista de técnicos autorizados. A chave privada identifica criptograficamente o técnico; o nome sozinho não libera acesso.
+**O código privado da equipe não está no código-fonte nem nos instaladores.** Entregue-o somente aos técnicos autorizados. Quem possui o código pode autorizar um console; nomes são declarados pelos integrantes da equipe. A credencial individual tem validade de cinco anos. Para retirar o acesso de alguém que conhece o código compartilhado, é necessário rotacionar a autoridade e redistribuir a configuração da equipe; não existe revogação central individual nesta versão.
 
-Cada requisição é assinada e vinculada à máquina, ao caminho, ao conteúdo e à sessão. Datas e nonces impedem reutilização de requisições. O console só aceita o certificado cujo SHA-256 consta no arquivo de computador importado; não há opção para aceitar qualquer certificado. Não copie identificações de técnico entre contas, nem importe arquivos de computador de origem desconhecida.
+`src/TeamDeployment.json` contém a autoridade **pública** e uma delegação limitada a cadastrar agentes. A chave dessa delegação permite instalar novos clientes, mas não assinar credenciais de técnicos nem controlar máquinas. A autorização pública dos instaladores desta equipe vence em outubro de 2036.
 
-Para mudar os técnicos do cadastro automático, gere e distribua um novo instalador para a equipe desejada. A reinstalação preserva o identificador da máquina e atualiza a credencial/certificado. O console redescobre e verifica o computador automaticamente. O programa não adiciona contas ao Windows e não altera o domínio.
+## Funções e limites atuais
 
-## Limites e implantação
+Implementado: lista automática, varredura por IP, filtro, estado de conexão, visualização da área de trabalho, mouse, arraste, roda, teclado, envio de texto, aviso de técnico e logs locais de início/fim/erros. Existe uma sessão por computador, com expiração e encerramento ao bloquear ou desconectar a área de trabalho.
 
-Esta é uma implementação própria, sem promessa de equivalência completa ao NetSupport. Precisa de funcionário conectado e área de trabalho desbloqueada. Não opera antes do login, não acessa desktop seguro/UAC e não é serviço Windows. O agente pode ser encerrado pelo Gerenciador de Tarefas da conta local. Programas executados como administrador podem recusar comandos de um agente sem elevação.
+O agente funciona **na sessão do funcionário**. É necessário estar conectado ao Windows e com a área de trabalho desbloqueada. Não controla login, tela bloqueada ou a área protegida do UAC; aplicações elevadas podem recusar entrada de um agente sem elevação. Não é um serviço do Windows. Um usuário local pode encerrá-lo pelo Gerenciador de Tarefas.
 
-A sessão termina ao bloquear a estação, após 20 segundos sem requisições válidas ou após uma hora. Ao encerrar, as teclas/botões mantidos pela sessão são liberados. Não existe gravação de tela, chat, transferência de arquivos, impressão remota, inventário completo ou gerenciamento central. A transmissão atual é JPEG de tela, sem codec de vídeo. O cadastro suporta uma lista de máquinas, mas 400 sessões simultâneas não foram testadas. Comece em duas máquinas reais antes de ampliar.
+Ainda não há transferência de arquivos, chat, inventário completo, impressão remota, gravação de sessão ou auditoria centralizada. Não há equivalência integral ao NetSupport nem assinatura Authenticode dos instaladores.
 
-A rede deve permitir TCP 7443 entre técnico e agente. O certificado é autoassinado, não exportável, válido por três anos e validado por sua identidade previamente importada. Não exige confiança da CA corporativa. Não encaminhe essa porta para a internet.
+## Compilar e verificar
 
-Logs locais de início/fim/erro: `%LOCALAPPDATA%\SdeSuporte\logs\audit.jsonl`. Não são uma auditoria central inviolável. Não registram o texto digitado. Lista e identificação do técnico ficam em `%LOCALAPPDATA%\SdeSuporte` da conta do console. Política do agente fica em `C:\Program Files\SDE-Suporte\Agent\agent.json`, protegida contra alteração por usuário comum.
+Em Windows x64 com .NET SDK 10 e Inno Setup 6:
 
-## Compilar e testar
+```powershell
+./scripts/Build.ps1
+./scripts/Build-Template.ps1
+./scripts/Test-Windows.ps1
+& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DSetupRole=technician installer/SDE-Suporte.iss
+& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DSetupRole=client installer/SDE-Suporte.iss
+```
 
-O GitHub Actions compila o console, o agente e o instalador personalizado .NET 10. Testa o protocolo, a autorização de cadastro, a descoberta por UDP sem importar o arquivo da máquina e um atendimento entre processos Windows, incluindo captura e digitação num aplicativo de teste. Também gera o instalador e testa as seleções de técnico e agente, inclusive abrir o agente sem configuração. Confira o resultado real na aba Actions; aprovação no CI não comprova a conectividade/firewall entre duas máquinas da sua empresa.
+O workflow Windows compila aplicativos autocontidos, verifica assinaturas e rejeição de acessos indevidos, usa captura e entrada reais, encontra o agente por UDP e IP e conecta seis identidades novas ao mesmo cliente sem reinstalá-lo. Também testa instalação/remoção dos dois EXEs e atualização de um cliente em execução, preservando sua identidade. As credenciais dos testes são descartáveis e não entram no artefato publicado.
 
-No Windows com SDK .NET 10: `scripts\Build.ps1`, seguido de `scripts\Build-Template.ps1`. Os testes de integração usam uma porta de teste e certificado temporário, exigem administrador e um desktop Windows interativo: `scripts\Test-Windows.ps1`.
-
-Para uso normal baixe o instalador na pasta **release** do artefato de uma execução bem-sucedida no GitHub. Instalador e executáveis ainda não possuem assinatura Authenticode.
-
-## Remoção
-
-O cliente personalizado registra **SDE Suporte - Cliente** em Aplicativos do Windows. O instalador geral continua com a entrada SDE Suporte. Use a remoção correspondente. A limpeza remove o vínculo e certificado criados pelo agente, a reserva da porta, a regra de firewall e a inicialização automática. Identificação privada do técnico e logs da conta são preservados; uma reinstalação pode reutilizar a identificação do técnico. Arquivos `.sdehost` exportados não são apagados dos locais escolhidos.
-
-Autoria do projeto: Jorge Henrique — CMTIC/SDE. Projeto assistido por IA; validar em máquinas reais antes da distribuição ampla.
+O pacote para download contém somente os dois instaladores e estas instruções.

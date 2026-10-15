@@ -11,5 +11,6 @@
   <DefineConstants>$(DefineConstants);AGENT_ONLY</DefineConstants>
   <AssemblyName>SDE-Suporte-Cliente</AssemblyName>
  </PropertyGroup>
+ <ItemGroup><EmbeddedResource Include="TeamDeployment.json" LogicalName="SdeSuporte.TeamDeployment" /></ItemGroup>
 </Project>
 

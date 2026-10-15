@@ -12,18 +12,105 @@ static class Tests
     {
         try
         {
-            if(args[0]=="prepare")
+            if(args[0] is "prepare" or "prepare-team")
             {
                 Directory.CreateDirectory(args[1]);
                 using var id=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Técnico de Teste");
-                Json.Write(Path.Combine(args[1],"deployment.json"),Enrollment.Create(id,[],"Teste"));
+                if(args[0]=="prepare-team")
+                {
+                    using var key=ECDsa.Create(ECCurve.NamedCurves.nistP256);
+                    var code=TeamAccess.EncodeCode(key.ExportParameters(true).D!);
+                    using var root=new TechnicianIdentity(key,"Equipe de Teste");
+                    Json.Write(Path.Combine(args[1],"deployment.json"),Enrollment.Create(root,[],"Teste",true));
+                    Json.Write(Path.Combine(args[1],"team-root.json"),root.Public);
+                    File.WriteAllText(Path.Combine(args[1],"root-test.code"),code);
+                }
+                else Json.Write(Path.Combine(args[1],"deployment.json"),Enrollment.Create(id,[],"Teste"));
                 Json.Write(Path.Combine(args[1],"tecnico.sdetech"),id.Public);File.WriteAllBytes(Path.Combine(args[1],"private-test.pk8"),id.ExportPrivate());return 0;
             }
-            if(args[0]=="protocol") {Protocol();EnrollmentTests();return 0;}
+            if(args[0]=="protocol") {Protocol();EnrollmentTests();TeamTests();RangeTests();return 0;}
             if(args[0]=="template"){InstallerPackage.CreateTemplate(args[1],args[2],args[3]);return 0;}
             if(args[0]=="package"){using var creator=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Preparador");InstallerPackage.Personalize(args[1],args[2],Enrollment.Create(creator,[],"Teste"));return 0;}
+            if(args[0]=="live-team"){await LiveTeam(args[1],args[2]);return 0;}
+            if(args[0]=="installed"){await Installed(args[1]);return 0;}
             await Live(args[1],args[2]);return 0;
         }catch(Exception e){Console.Error.WriteLine(e);return 1;}
+    }
+    static void TeamTests()
+    {
+        Enrollment.VerifyPermission(TeamAccess.Deployment.Approval);Console.WriteLine("OK: autorizacao publica distribuida pertence a equipe SDE");
+        using var key=ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        string code=TeamAccess.EncodeCode(key.ExportParameters(true).D!);
+        using var root=new TechnicianIdentity(key,"Equipe");
+        using var imported=TeamAccess.OpenCode(code,root.Public.Name);
+        Check(imported.Public.Id==root.Public.Id,"codigo da equipe importa chave correta no Windows");
+        var deviceId=Guid.NewGuid().ToString();var verifier=new RequestVerifier([root.Public],deviceId,root.Public);
+        for(int i=0;i<6;i++)
+        {
+            using var technician=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Tecnico "+(i+1));
+            var credential=TeamAccess.Authorize(code,technician,root.Public);
+            string time=DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(),nonce=Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
+            string signature=technician.Sign("GET","/info",[],"",time,nonce,deviceId);
+            Check(verifier.Verify(technician.Public.Id,deviceId,"GET","/info",[],"",time,nonce,signature,TeamAccess.Encode(credential))?.Name==technician.Public.Name,"tecnico "+(i+1)+" autorizado com mesmo codigo, sem mudar agente");
+            Check(TeamAccess.Verify(credential with{Technician=technician.Public with{Name="Nome adulterado"}},root.Public) is null,"nome adulterado no certificado de tecnico rejeitado");
+            var discovery=new DiscoveryRequest(technician.Public.Id,long.Parse(time),nonce,technician.SignDetached(DiscoveryNetwork.RequestBytes(technician.Public.Id,long.Parse(time),nonce)),credential);
+            Check(DiscoveryNetwork.VerifyRequest(discovery,[root.Public],root.Public),"descoberta aceita tecnico da equipe");
+            Check(!DiscoveryNetwork.VerifyRequest(discovery with{Credential=null},[root.Public],root.Public),"descoberta bloqueia console sem autorizacao");
+        }
+        using var stranger=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Outra equipe");
+        var forged=TeamAccess.Issue(stranger,stranger.Public);
+        Check(TeamAccess.Verify(forged,root.Public) is null,"certificado de outra equipe rejeitado");
+        try{TeamAccess.Authorize(code,stranger,stranger.Public);throw new Exception("codigo de outra equipe aceito");}catch(InvalidDataException){Console.WriteLine("OK: codigo de outra equipe rejeitado");}
+    }
+    static void RangeTests()
+    {
+        var subnet=IPv4Range.Parse("10.37.2.0/23");
+        Check(subnet.Count==510&&subnet.Addresses().First().ToString()=="10.37.2.1"&&subnet.Addresses().Last().ToString()=="10.37.3.254","varredura contempla mais de 400 IPs e mascara real");
+        Check(IPv4Range.Parse("192.168.1.5-192.168.1.8").Count==4,"faixa inicial-final inclusiva");
+        Check(IPv4Range.Parse("10.1.1.4/31").Count==2&&IPv4Range.Parse("10.1.1.4/32").Count==1,"redes /31 e /32 tratadas corretamente");
+        foreach(var invalid in new[]{"8.8.8.0/24","10.0.0.0/8","192.168.1.9-192.168.1.1","10.37.2.0/banana"})
+        {try{IPv4Range.Parse(invalid);throw new Exception("faixa invalida aceita");}catch(ArgumentException){Console.WriteLine("OK: faixa publica, excessiva ou invalida rejeitada");}}
+    }
+    static async Task LiveTeam(string fixture,string configFile)
+    {
+        var config=Json.Read<AgentConfig>(configFile);var root=Json.Read<TechnicianKey>(Path.Combine(fixture,"team-root.json"));
+        string code=File.ReadAllText(Path.Combine(fixture,"root-test.code"));
+        using var first=TechnicianIdentity.FromPrivate(File.ReadAllBytes(Path.Combine(fixture,"private-test.pk8")),"Técnico de Teste");
+        first.Credential=TeamAccess.Authorize(code,first,root);
+        Device? found=null;
+        for(int i=0;i<15&&found is null;i++)
+        {await NetworkScanner.Scan([IPv4Range.Parse("127.0.0.1/32",true)],[root.Id],first.Public.Id,d=>found=d,port:config.Device.Port);if(found is null)await Task.Delay(500);}
+        Check(found?.Id==config.Device.Id,"varredura IP encontra agente real via HTTPS sem broadcast");
+        Check(await NetworkScanner.Discover(IPAddress.Loopback,config.Device.Port,[],first.Public.Id,CancellationToken.None) is null,"varredura rejeita agente de equipe desconhecida");
+        var online=new TaskCompletionSource<Device>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var discovery=new ConsoleDiscovery(first,()=>[root.Id],d=>online.TrySetResult(d),17445);
+        await discovery.SearchTo(new IPEndPoint(IPAddress.Loopback,7446));
+        Check((await online.Task.WaitAsync(TimeSpan.FromSeconds(5))).Id==config.Device.Id,"novo tecnico encontra agente por UDP autenticado sem cadastro individual");
+        string before=File.ReadAllText(configFile);
+        for(int i=0;i<6;i++)
+        {
+            using var technician=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Tecnico da equipe "+(i+1));
+            technician.Credential=TeamAccess.Authorize(code,technician,root);
+            using var client=new RemoteClient(found!,technician);
+            using var info=await client.Request(HttpMethod.Get,"/info");
+            await client.Start();Check(client.Session?.TechnicianName==technician.Public.Name,"agente real reconhece nome do tecnico "+(i+1));await client.Stop();
+        }
+        Check(before==File.ReadAllText(configFile),"seis tecnicos conectam sem reinstalar nem alterar configuracao do cliente");
+        using var unauthorized=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Sem codigo");
+        using var denied=new RemoteClient(found!,unauthorized);
+        try{using var response=await denied.Request(HttpMethod.Post,"/session");throw new Exception("sem codigo iniciou sessao");}
+        catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.Forbidden){Console.WriteLine("OK: instalar console sem codigo nao concede controle remoto");}
+        using var stop=new CancellationTokenSource();stop.Cancel();
+        try{await NetworkScanner.Scan([IPv4Range.Parse("127.0.0.1/32",true)],[root.Id],first.Public.Id,_=>{},cancellation:stop.Token,port:config.Device.Port);throw new Exception("varredura nao cancelou");}
+        catch(OperationCanceledException){Console.WriteLine("OK: varredura pode ser cancelada");}
+    }
+    static async Task Installed(string configFile)
+    {
+        var config=Json.Read<AgentConfig>(configFile);
+        Check(config.Enrollment?.Approval.Permission.TeamWide==true,"instalador cliente ja inclui equipe sem arquivos manuais");
+        Check(config.Enrollment!.Approval.Permission.Issuer.Id==TeamAccess.Root.Id,"cliente instalado usa autoridade publica da empresa");
+        Device? found=null;for(int i=0;i<15&&found is null;i++){found=await NetworkScanner.Discover(IPAddress.Loopback,config.Device.Port,[TeamAccess.Root.Id],"scanner",CancellationToken.None);if(found is null)await Task.Delay(500);}
+        Check(found?.Id==config.Device.Id,"cliente instalado fica disponivel para varredura IP");
     }
     static void Protocol()
     {

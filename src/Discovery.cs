@@ -4,7 +4,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text.Json;
 namespace SdeSuporte;
-public record DiscoveryRequest(string Id,long Time,string Nonce,string Signature);
+public record DiscoveryRequest(string Id,long Time,string Nonce,string Signature,TeamCredential? Credential=null);
 public record DiscoveryMessage(string Protocol,DeviceEnrollment Enrollment);
 public static class DiscoveryNetwork
 {
@@ -24,10 +24,11 @@ public static class DiscoveryNetwork
         return addresses.Select(x=>new IPEndPoint(IPAddress.Parse(x),AgentPort));
     }
     public static byte[] RequestBytes(string id,long time,string nonce)=>System.Text.Encoding.UTF8.GetBytes($"SDE-DISCOVER-1\n{id}\n{time}\n{nonce}");
-    public static bool VerifyRequest(DiscoveryRequest request,TechnicianKey[] technicians)
+    public static bool VerifyRequest(DiscoveryRequest request,TechnicianKey[] technicians,TechnicianKey? teamRoot=null)
     {
         long now=DateTimeOffset.UtcNow.ToUnixTimeSeconds();var t=technicians.FirstOrDefault(t=>t.Id==request.Id);
-        if(t is null||request.Time<now-45||request.Time>now+45||request.Nonce.Length!=32)return false;
+        if(t is null&&teamRoot is not null)t=TeamAccess.Verify(request.Credential,teamRoot);
+        if(t is null||t.Id!=request.Id||request.Time<now-45||request.Time>now+45||request.Nonce.Length!=32)return false;
         try{using var key=ECDsa.Create();key.ImportSubjectPublicKeyInfo(Convert.FromBase64String(t.PublicKey),out _);return key.VerifyData(RequestBytes(request.Id,request.Time,request.Nonce),Convert.FromBase64String(request.Signature),HashAlgorithmName.SHA256);}catch{return false;}
     }
 }
@@ -47,8 +48,9 @@ public sealed class AgentDiscovery:IDisposable
     {
         while(!stop.IsCancellationRequested)
         {
-            try{var data=await udp.ReceiveAsync(stop.Token);if(data.Buffer.Length>2048)continue;
-                var request=JsonSerializer.Deserialize<DiscoveryRequest>(data.Buffer,Json.Options);if(request is null||!DiscoveryNetwork.VerifyRequest(request,config.Technicians))continue;
+            try{var data=await udp.ReceiveAsync(stop.Token);if(data.Buffer.Length>8192)continue;
+                var request=JsonSerializer.Deserialize<DiscoveryRequest>(data.Buffer,Json.Options);if(request is null||!DiscoveryNetwork.VerifyRequest(request,config.Technicians,
+                    config.Enrollment!.Approval.Permission.TeamWide?config.Enrollment.Approval.Permission.Issuer:null))continue;
                 await udp.SendAsync(Message(),data.RemoteEndPoint,stop.Token);
             }catch(OperationCanceledException){break;}catch(ObjectDisposedException){break;}catch{await Task.Delay(200);}
         }
@@ -80,14 +82,14 @@ public sealed class ConsoleDiscovery:IDisposable
     public async Task Search()
     {
         long time=DateTimeOffset.UtcNow.ToUnixTimeSeconds();string nonce=Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
-        var request=new DiscoveryRequest(identity.Public.Id,time,nonce,identity.SignDetached(DiscoveryNetwork.RequestBytes(identity.Public.Id,time,nonce)));
+        var request=new DiscoveryRequest(identity.Public.Id,time,nonce,identity.SignDetached(DiscoveryNetwork.RequestBytes(identity.Public.Id,time,nonce)),identity.Credential);
         var bytes=Enrollment.Bytes(request);
         foreach(var endpoint in DiscoveryNetwork.Broadcasts()){try{await udp.SendAsync(bytes,endpoint,stop.Token);}catch{}}
     }
     public async Task SearchTo(IPEndPoint endpoint)
     {
         long time=DateTimeOffset.UtcNow.ToUnixTimeSeconds();string nonce=Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
-        var request=new DiscoveryRequest(identity.Public.Id,time,nonce,identity.SignDetached(DiscoveryNetwork.RequestBytes(identity.Public.Id,time,nonce)));
+        var request=new DiscoveryRequest(identity.Public.Id,time,nonce,identity.SignDetached(DiscoveryNetwork.RequestBytes(identity.Public.Id,time,nonce)),identity.Credential);
         await udp.SendAsync(Enrollment.Bytes(request),endpoint,stop.Token);
     }
     async Task Receive()

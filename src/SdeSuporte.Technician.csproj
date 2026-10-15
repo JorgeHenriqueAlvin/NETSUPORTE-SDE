@@ -11,5 +11,6 @@
   <DefineConstants>$(DefineConstants);TECHNICIAN_ONLY</DefineConstants>
   <AssemblyName>SDE-Suporte-Tecnico</AssemblyName>
  </PropertyGroup>
+ <ItemGroup><EmbeddedResource Include="TeamDeployment.json" LogicalName="SdeSuporte.TeamDeployment" /></ItemGroup>
 </Project>
 

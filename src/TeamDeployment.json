@@ -1,0 +1,27 @@
+{
+  "approval": {
+    "permission": {
+      "id": "df01f80b-40b0-44e4-aca8-9087b4e8957b",
+      "issuer": {
+        "id": "43043BB61206AC6DDB99B899591407D3E102D765B9467FD7CC85412EAB9E3AC8",
+        "name": "Equipe TI SDE",
+        "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEBG6K7ExjRjzhiRB8dgoCVcxPX/wPhhlLZeeJeckvlPqK03HXksx/BFJDXVXdyLkInlANPbZ53CTxXm+MKXivug==",
+        "discoveryAddresses": null
+      },
+      "technicians": [
+        {
+          "id": "43043BB61206AC6DDB99B899591407D3E102D765B9467FD7CC85412EAB9E3AC8",
+          "name": "Equipe TI SDE",
+          "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEBG6K7ExjRjzhiRB8dgoCVcxPX/wPhhlLZeeJeckvlPqK03HXksx/BFJDXVXdyLkInlANPbZ53CTxXm+MKXivug==",
+          "discoveryAddresses": null
+        }
+      ],
+      "enrollmentPublicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVxfMqzbrx7UUaZoikfF0H76wuczOxyPyvkdAy5iXYSOR+/ZMOgdZJBGampvft6oD6F3g6IngVPhQ2Pjrkx2Xxg==",
+      "sector": "SDE",
+      "expires": "2036-10-15T00:00:00+00:00",
+      "teamWide": true
+    },
+    "signature": "OlO5KYZgnUgkG7rMzOaeTqwoSNpDR3iabCaXkBDCxD1YpzTBuoGwrZqPTQXAPOzpRbBlTzDW2Kwm63LpwIpS9g=="
+  },
+  "enrollmentPrivateKey": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg7OpzOSVk+9Kmb8Hd/+44kfyygj8t15FCqCBYWpA895+hRANCAARXF8yrNuvHtRRpmiKR8XQfvrC5zM7HI/K+R0DLmJdhI5H79kw6B1kkEZqam9+3qgPoXeDoieBU+FDY+OuTHZfG"
+}
