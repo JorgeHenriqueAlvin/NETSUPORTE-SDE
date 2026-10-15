@@ -305,7 +305,8 @@ sealed class Technician:Form
     async Task Input(InputCommand command)
     {
         if(client?.Session is null)return;
-        await operations.WaitAsync();try{if(client?.Session is not null){using var r=await client.Request(HttpMethod.Post,"/input",command with{Layout=frameLayout});}}finally{operations.Release();}
+        command=command with{Layout=frameLayout};
+        await operations.WaitAsync();try{if(client?.Session is not null){using var r=await client.Request(HttpMethod.Post,"/input",command);}}finally{operations.Release();}
     }
     static bool HasCapability(JsonDocument info,string name)=>info.RootElement.TryGetProperty("capabilities",out var capabilities)
         &&capabilities.ValueKind==JsonValueKind.Array&&capabilities.EnumerateArray().Any(c=>c.GetString()==name);

@@ -344,6 +344,7 @@ static class Tests
             {
                 var descriptors=JsonSerializer.Deserialize<RemoteMonitor[]>(Convert.FromBase64String(monitorFrame.Headers.GetValues("X-SDE-Monitors").Single()),Json.Options)!;
                 var chosen=descriptors.Single(m=>m.Id==Uri.UnescapeDataString(monitorFrame.Headers.GetValues("X-SDE-Monitor").Single()));
+                using(var exact=await client.Request(HttpMethod.Get,"/frame?monitor="+Uri.EscapeDataString(chosen.Id)))Check(Uri.UnescapeDataString(exact.Headers.GetValues("X-SDE-Monitor").Single())==chosen.Id,"selecao do monitor pelo identificador Windows autenticado");
                 using var imageStream=await monitorFrame.Content.ReadAsStreamAsync();using var picture=Image.FromStream(imageStream);
                 Check(picture.Width==chosen.Width&&picture.Height==chosen.Height,"captura selecionada corresponde a resolucao do monitor detectado");
                 try{using var stale=await client.Request(HttpMethod.Post,"/input",new InputCommand("move",Layout:"layout-antigo"));throw new Exception("layout antigo aceito");}
