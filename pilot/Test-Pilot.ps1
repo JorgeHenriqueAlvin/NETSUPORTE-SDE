@@ -2,7 +2,9 @@ $ErrorActionPreference='Stop'
 $ip=(Get-NetIPAddress -AddressFamily IPv4 | Where-Object {$_.IPAddress -match '^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)' -and $_.AddressState -eq 'Preferred'} | Select-Object -First 1).IPAddress
 if(-not $ip){throw 'Interface IPv4 privada de teste nao encontrada.'}
 $export=Join-Path $env:TEMP 'SDE-WinRM-Pilot-Test'
+$profiles=Get-NetFirewallProfile | Select-Object Name,Enabled
 try {
+ Set-NetFirewallProfile -Profile Domain,Private,Public -Enabled True
  $info=& "$PSScriptRoot\Prepare-Client.ps1" -ClientIPv4 $ip -TechnicianIPv4 $ip -ExportDirectory $export -Port 15986
  $info=$info | Select-Object -Last 1
  if(-not (Test-Path "$export\Cliente-WinRM.cer") -or $info.Sha256.Length -ne 64){throw 'Certificado publico nao exportado.'}
@@ -22,4 +24,5 @@ try {
  & "$PSScriptRoot\Remove-Pilot.ps1" -Role Technician
  & "$PSScriptRoot\Remove-Pilot.ps1" -Role Client
  Remove-Item $export -Recurse -Force -ErrorAction SilentlyContinue
+ foreach($profile in $profiles){Set-NetFirewallProfile -Profile $profile.Name -Enabled $profile.Enabled}
 }

@@ -32,6 +32,8 @@ if(Test-Path -LiteralPath $stateFile){
   throw 'Ha um listener HTTP existente com restricao de acesso. A configuracao foi preservada; solicite revisao da TI.'
  }
  foreach($name in @('SDE-WinRM-Pilot-Allow','SDE-WinRM-Pilot-Block')){if(Get-NetFirewallRule -Name $name -ErrorAction SilentlyContinue){throw 'Existe regra antiga do piloto sem estado salvo. Solicite revisao da TI.'}}
+ $profiles=@(Get-NetFirewallProfile -PolicyStore ActiveStore)
+ if(@($profiles | Where-Object { [string]$_.Enabled -ne 'True' -or [string]$_.AllowLocalFirewallRules -eq 'False' }).Count){throw 'O firewall precisa estar ativo e aceitar regras locais. A configuracao foi preservada; solicite revisao da TI.'}
  New-Item -ItemType Directory -Path $stateFolder -Force | Out-Null
  & icacls.exe $stateFolder /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
  if($LASTEXITCODE -ne 0){throw 'Nao foi possivel proteger a pasta de configuracao.'}
@@ -46,8 +48,16 @@ if(Test-Path -LiteralPath $stateFile){
   $b=([Net.IPAddress]::Parse($TechnicianIPv4)).GetAddressBytes()
   [uint64]$number=[uint64]$b[0]*16777216+[uint64]$b[1]*65536+[uint64]$b[2]*256+$b[3]
   function Address([uint64]$n){'{0}.{1}.{2}.{3}' -f (($n -shr 24) -band 255),(($n -shr 16) -band 255),(($n -shr 8) -band 255),($n -band 255)}
-  $blocked=@(('0.0.0.0-'+(Address ($number-1))),((Address ($number+1))+'-255.255.255.255'),'::/0')
-  New-NetFirewallRule -Name SDE-WinRM-Pilot-Block -DisplayName 'SDE piloto WinRM HTTPS - bloquear outras origens' -Direction Inbound -Action Block -Protocol TCP -LocalPort $Port -RemoteAddress $blocked -Profile Any | Out-Null
+  $blocked=New-Object System.Collections.Generic.List[string]
+  for($prefix=1;$prefix -le 32;$prefix++){
+   [uint64]$size=([uint64]1 -shl (32-$prefix))
+   [uint64]$network=[uint64]([math]::Floor($number/$size)*$size)
+   [uint64]$other=if(($number -band $size) -ne 0){$network-$size}else{$network+$size}
+   $blocked.Add(((Address $other)+'/'+$prefix))
+  }
+  $blocked.Add('::/0')
+  Write-Verbose ('Bloqueio das outras origens: '+($blocked -join ', '))
+  New-NetFirewallRule -Name SDE-WinRM-Pilot-Block -DisplayName 'SDE piloto WinRM HTTPS - bloquear outras origens' -Direction Inbound -Action Block -Protocol TCP -LocalPort $Port -RemoteAddress $blocked.ToArray() -Profile Any | Out-Null
   New-NetFirewallRule -Name SDE-WinRM-Pilot-Allow -DisplayName 'SDE piloto WinRM HTTPS - tecnico autorizado' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port -LocalAddress $ClientIPv4 -RemoteAddress $TechnicianIPv4 -Profile Any | Out-Null
   if($null -eq $endpoint){Register-PSSessionConfiguration -Name Microsoft.PowerShell -AccessMode Remote -SecurityDescriptorSddl 'O:NSG:BAD:P(A;;GA;;;BA)(A;;GA;;;SY)' -NoServiceRestart -Force | Out-Null}
   elseif(-not @($existing | Where-Object Transport -eq 'HTTP').Count){Set-PSSessionConfiguration -Name Microsoft.PowerShell -AccessMode Remote -NoServiceRestart -Force | Out-Null}
