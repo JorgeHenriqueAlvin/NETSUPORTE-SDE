@@ -55,7 +55,7 @@ if(Test-Path -LiteralPath $stateFile){
    [uint64]$other=if(($number -band $size) -ne 0){$network-$size}else{$network+$size}
    $blocked.Add(((Address $other)+'/'+$prefix))
   }
-  $blocked.Add('::/0')
+  $blocked.Add('::/1');$blocked.Add('8000::/1')
   Write-Verbose ('Bloqueio das outras origens: '+($blocked -join ', '))
   New-NetFirewallRule -Name SDE-WinRM-Pilot-Block -DisplayName 'SDE piloto WinRM HTTPS - bloquear outras origens' -Direction Inbound -Action Block -Protocol TCP -LocalPort $Port -RemoteAddress $blocked.ToArray() -Profile Any | Out-Null
   New-NetFirewallRule -Name SDE-WinRM-Pilot-Allow -DisplayName 'SDE piloto WinRM HTTPS - tecnico autorizado' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port -LocalAddress $ClientIPv4 -RemoteAddress $TechnicianIPv4 -Profile Any | Out-Null
@@ -68,14 +68,6 @@ if(Test-Path -LiteralPath $stateFile){
   Restart-Service WinRM -Force
  }catch{
   $failure=$_
-  if($VerbosePreference -eq 'Continue' -and $blocked){
-   foreach($prefix in $blocked){
-    $probeName='SDE-Pilot-Diagnostic-'+[guid]::NewGuid().ToString('N')
-    try{New-NetFirewallRule -Name $probeName -DisplayName $probeName -Direction Inbound -Action Block -Enabled False -Protocol TCP -LocalPort $Port -RemoteAddress $prefix | Out-Null;Write-Verbose ('PREFIXO OK: '+$prefix)}
-    catch{Write-Verbose ('PREFIXO INVALIDO: '+$prefix+' : '+$_.Exception.Message)}
-    finally{Get-NetFirewallRule -Name $probeName -ErrorAction SilentlyContinue | Remove-NetFirewallRule}
-   }
-  }
   throw ('Configuracao incompleta: '+$failure.Exception.Message+' | '+$failure.InvocationInfo.PositionMessage+'. Execute a remocao do piloto antes de tentar novamente.')}
 }
 $export=Join-Path $ExportDirectory 'Cliente-WinRM.cer'
