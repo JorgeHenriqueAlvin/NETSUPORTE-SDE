@@ -21,6 +21,10 @@ New-Item -ItemType Directory -Path $ExportDirectory -Force | Out-Null
 if(Test-Path -LiteralPath $stateFile){
  $state=Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json
  if($state.ClientIPv4 -ne $ClientIPv4 -or $state.TechnicianIPv4 -ne $TechnicianIPv4 -or [int]$state.Port -ne $Port){throw 'Ja existe outro piloto configurado. Remova-o antes de trocar os IPs.'}
+ if(-not $state.ListenerCreated){throw 'O piloto anterior ficou incompleto. Execute a remocao antes de tentar novamente.'}
+ Start-Service WinRM
+ $active=@(Get-WSManInstance winrm/config/Listener -Enumerate | Where-Object {$_.Transport -eq 'HTTPS' -and $_.CertificateThumbprint -eq $state.Thumbprint -and [int]$_.Port -eq $Port})
+ if($active.Count -ne 1){throw 'O listener do piloto nao esta mais configurado. Execute a remocao e prepare novamente.'}
  $cert=Get-Item "Cert:\LocalMachine\My\$($state.Thumbprint)"
  if($cert.NotAfter -lt (Get-Date)){throw 'Certificado do piloto expirou. Remova e configure novamente.'}
 } else {
