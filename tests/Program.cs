@@ -26,6 +26,14 @@ static class Tests
     {
         using var id=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Jorge Henrique");
         using var other=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Outro");
+        using(var persistent=CngKey.Create(CngAlgorithm.ECDsaP256,"SDE-Test-"+Guid.NewGuid().ToString("N"),new CngKeyCreationParameters{ExportPolicy=CngExportPolicies.None}))
+        {
+            try {
+                using var signer=new TechnicianIdentity(new ECDsaCng(persistent),"Tecnico CNG");
+                var proof=signer.Sign("GET","/info",[],"","1",new string('A',32),"device");
+                Check(Convert.FromBase64String(proof).Length==64,"chave persistente nao exportavel assina requisicao");
+            }finally{persistent.Delete();}
+        }
         var device=Guid.NewGuid().ToString();var v=new RequestVerifier([id.Public],device);
         byte[] body=Encoding.UTF8.GetBytes("comando");string now=DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
         string nonce=Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
@@ -61,6 +69,8 @@ static class Tests
             ApplicationConfiguration.Initialize();
             var form=new Form{Text="SDE Suporte - alvo do teste",Width=600,Height=300,TopMost=true,StartPosition=FormStartPosition.CenterScreen};
             var input=new TextBox{Dock=DockStyle.Fill,Multiline=true};form.Controls.Add(input);
+            var surface=new RemoteScreen{Dock=DockStyle.Bottom,Height=30};form.Controls.Add(surface);
+            form.Shown+=(_,_)=>{surface.Focus();Check(surface.Focused,"tela remota pode receber teclado");};
             form.Shown+=(_,_)=>targetReady.SetResult((form,input));Application.Run(form);
         });thread.SetApartmentState(ApartmentState.STA);thread.Start();
         var (form,textbox)=await targetReady.Task.WaitAsync(TimeSpan.FromSeconds(10));

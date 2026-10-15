@@ -139,6 +139,7 @@ sealed class Technician:Form
 }
 sealed class RemoteScreen:PictureBox
 {
+    public RemoteScreen(){SetStyle(ControlStyles.Selectable,true);TabStop=true;}
     protected override bool IsInputKey(Keys keyData)=>true;
 }
 sealed class NameDialog:Form

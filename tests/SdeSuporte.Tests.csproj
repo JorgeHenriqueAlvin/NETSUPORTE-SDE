@@ -2,5 +2,5 @@
  <PropertyGroup>
   <RootNamespace>SdeSuporte</RootNamespace><OutputType>Exe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWindowsForms>true</UseWindowsForms><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
  </PropertyGroup>
- <ItemGroup><Compile Include="../src/Protocol.cs" Link="Protocol.cs" /></ItemGroup>
+ <ItemGroup><Compile Include="../src/Technician.cs" Link="Technician.cs" /><Compile Include="../src/Protocol.cs" Link="Protocol.cs" /></ItemGroup>
 </Project>
