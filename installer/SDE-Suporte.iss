@@ -72,9 +72,6 @@ Name: "{group}\Instruções"; Filename: "{app}\QUICKSTART.md"
 #if SetupRole != "client"
 Filename: "{app}\Technician\SDE-Suporte-Tecnico.exe"; Description: "Abrir console do técnico"; Flags: postinstall nowait runasoriginaluser skipifsilent{#TechnicianComponent}
 #endif
-#if SetupRole != "technician"
-Filename: "{app}\Agent\SDE-Suporte-Cliente.exe"; Flags: nowait runasoriginaluser skipifsilent{#ClientComponent}
-#endif
 [UninstallRun]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\Cleanup-Agent.ps1"""; Flags: waituntilterminated; RunOnceId: "CleanupSdeSuporte"
 [UninstallDelete]
@@ -109,7 +106,24 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  StartResult: Integer;
 begin
+  { Inno processes ordinary Run entries BEFORE ssPostInstall. Start the agent
+    only after configuration is complete, under the installing employee. }
+  if CurStep = ssDone then begin
+#if SetupRole != "technician"
+    if not WizardSilent and not ConfigurationFailed and
+       FileExists(ExpandConstant('{app}\Agent\agent.json')) then begin
+      if not ExecAsOriginalUser(ExpandConstant('{app}\Agent\SDE-Suporte-Cliente.exe'), '',
+        ExpandConstant('{app}\Agent'), SW_SHOWNORMAL, ewNoWait, StartResult) then begin
+        ConfigurationFailed := True;
+        RaiseException('O agente foi instalado. Entre novamente no Windows para iniciá-lo automaticamente.');
+      end;
+    end;
+#endif
+    Exit;
+  end;
   if CurStep <> ssPostInstall then Exit;
 #if SetupRole == "technician"
   RunConfiguration(ExpandConstant('-File "{app}\scripts\Initialize-Console.ps1"'));

@@ -1,6 +1,10 @@
 #Requires -RunAsAdministrator
 param([string]$InstallDirectory="$env:ProgramFiles\SDE-Suporte\Agent",[switch]$RemoveFiles)
 $ErrorActionPreference='Stop'
+if($PSVersionTable.PSEdition -eq 'Desktop') {
+ $env:PSModulePath=(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')+';'+(Join-Path $PSHOME 'Modules')
+ Import-Module Microsoft.PowerShell.Security -ErrorAction Stop
+}
 $path=Join-Path $InstallDirectory 'agent.json'
 if (-not (Test-Path -LiteralPath $path)) { return }
 $config=Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json

@@ -13,6 +13,10 @@ param(
  [switch]$NoStartup
 )
 $ErrorActionPreference='Stop'
+if($PSVersionTable.PSEdition -eq 'Desktop') {
+ $env:PSModulePath=(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')+';'+(Join-Path $PSHOME 'Modules')
+ Import-Module Microsoft.PowerShell.Security -ErrorAction Stop
+}
 if ([string]::IsNullOrWhiteSpace($Sector) -or $Sector.Length -gt 100) { throw 'Informe o setor (ate 100 caracteres).' }
 if ($Port -lt 1024 -or $Port -gt 65535) { throw 'Porta invalida.' }
 if ($TechnicianFiles.Count -eq 0) { throw 'Selecione a identificacao publica de pelo menos um tecnico.' }

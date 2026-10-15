@@ -3,6 +3,12 @@ param([Parameter(Mandatory)][string]$DeploymentProfile,[Parameter(Mandatory)][st
  [string]$InstallDirectory="$env:ProgramFiles\SDE-Suporte\Agent",[int]$Port=7443,[switch]$NoStartup,[switch]$NonInteractive,
  [string]$BinaryDirectory='', [switch]$NoSeparateUninstall)
 $ErrorActionPreference='Stop'
+if($PSVersionTable.PSEdition -eq 'Desktop') {
+ # Installers launched from PowerShell 7 can inherit its module directories.
+ # Windows PowerShell 5.1 must load its own security/certificate provider.
+ $env:PSModulePath=(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')+';'+(Join-Path $PSHOME 'Modules')
+ Import-Module Microsoft.PowerShell.Security -ErrorAction Stop
+}
 try { Start-Transcript -Path (Join-Path $PayloadDirectory 'agent-setup.log') -Append | Out-Null } catch {}
 try {
  $profile=Get-Content -LiteralPath $DeploymentProfile -Raw -Encoding UTF8 | ConvertFrom-Json
