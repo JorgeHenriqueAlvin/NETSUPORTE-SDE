@@ -1,0 +1,9 @@
+**/bin/
+**/obj/
+dist/
+*.pfx
+*.p12
+*.key
+agent.json
+machines.json
+*.jsonl
