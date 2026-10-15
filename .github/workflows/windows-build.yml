@@ -47,6 +47,18 @@ jobs:
           }
           & $compiler installer/SDE-Suporte.iss
           if ($LASTEXITCODE -ne 0) { throw 'Falha ao gerar instalador.' }
+      - name: Testar instalação e remoção do console
+        shell: pwsh
+        run: |
+          $setup = (Resolve-Path release/SDE-Suporte-Instalador-Windows-x64.exe).Path
+          $target = Join-Path $env:RUNNER_TEMP 'SDE-Suporte-Teste'
+          $process = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TYPE=technician',"/DIR=$target") -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw "Instalação falhou: $($process.ExitCode)" }
+          if (-not (Test-Path "$target\Technician\SDE-Suporte-Tecnico.exe")) { throw 'Console não instalado.' }
+          if (Test-Path "$target\package\dist\Agent\SDE-Suporte-Cliente.exe") { throw 'Agente instalado indevidamente na seleção de técnico.' }
+          $uninstall = Start-Process "$target\unins000.exe" -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
+          if ($uninstall.ExitCode -ne 0) { throw "Desinstalação falhou: $($uninstall.ExitCode)" }
+          if (Test-Path "$target\Technician\SDE-Suporte-Tecnico.exe") { throw 'Console não removido.' }
       - uses: actions/upload-artifact@v4
         with:
           name: SDE-Suporte-Windows-x64
