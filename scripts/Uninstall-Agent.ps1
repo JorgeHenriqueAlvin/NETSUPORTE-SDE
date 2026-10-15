@@ -3,7 +3,7 @@ param([string]$InstallDirectory="$env:ProgramFiles\SDE-Suporte\Agent")
 $ErrorActionPreference='Stop'
 $path=Join-Path $InstallDirectory 'agent.json'
 if (-not (Test-Path -LiteralPath $path)) { return }
-$config=Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+$config=Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
 if (-not $config.device.port) { return }
 $port=[int]$config.device.port
 $exe=Join-Path $InstallDirectory 'SDE-Suporte-Cliente.exe'

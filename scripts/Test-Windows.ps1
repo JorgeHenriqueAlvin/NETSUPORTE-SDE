@@ -7,7 +7,8 @@ dotnet run --project "$root\tests\SdeSuporte.Tests.csproj" -c Release -- protoco
 if ($LASTEXITCODE -ne 0) { throw 'Testes de assinatura falharam.' }
 dotnet run --project "$root\tests\SdeSuporte.Tests.csproj" -c Release -- prepare $fixture
 if ($LASTEXITCODE -ne 0) { throw 'Preparacao de teste falhou.' }
-& "$PSScriptRoot\Install-Agent.ps1" -Sector 'Teste' -TechnicianFiles "$fixture\tecnico.sdetech" -ExportPath $hostFile -Port 17443 -ConnectionHost '127.0.0.1' -TechnicianNetworks '127.0.0.1' -InstallDirectory $agentDir -BinaryDirectory "$root\dist\Agent" -NoStartup
+& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PSScriptRoot\Install-Agent.ps1" -Sector 'Teste' -TechnicianFiles "$fixture\tecnico.sdetech" -ExportPath $hostFile -Port 17443 -ConnectionHost '127.0.0.1' -TechnicianNetworks '127.0.0.1' -InstallDirectory $agentDir -BinaryDirectory "$root\dist\Agent" -NoStartup
+if ($LASTEXITCODE -ne 0) { throw 'Configuracao em Windows PowerShell 5.1 falhou.' }
 $process=Start-Process "$agentDir\SDE-Suporte-Cliente.exe" -PassThru
 try {
  dotnet run --project "$root\tests\SdeSuporte.Tests.csproj" -c Release -- live $fixture $hostFile

@@ -31,7 +31,7 @@ $configure.Add_Click({
   $save=New-Object System.Windows.Forms.SaveFileDialog;$save.Filter='Computador SDE (*.sdehost)|*.sdehost';$save.FileName="$env:COMPUTERNAME.sdehost"
   if ($save.ShowDialog() -ne 'OK') { $save.Dispose();return }
   $export=$save.FileName;$save.Dispose();$configure.Enabled=$false
-  & "$PSScriptRoot\Install-Agent.ps1" -Sector $sector.Text.Trim() -TechnicianFiles $script:technicianFiles -ExportPath $export -TechnicianNetworks @($networks.Text.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }) -RequireConsent $consent.Checked
+  & "$PSScriptRoot\Install-Agent.ps1" -InstallDirectory (Join-Path (Split-Path $PSScriptRoot -Parent) 'Agent') -Sector $sector.Text.Trim() -TechnicianFiles $script:technicianFiles -ExportPath $export -TechnicianNetworks @($networks.Text.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }) -RequireConsent $consent.Checked
   [System.Windows.Forms.MessageBox]::Show("Configurado. Envie o arquivo .sdehost ao tecnico para importar no console.`n`nSaia e entre no Windows para iniciar o agente sem elevacao.",'SDE Suporte') | Out-Null
   $form.Close()
  } catch { [System.Windows.Forms.MessageBox]::Show($_.Exception.Message,'Configuracao nao concluida') | Out-Null; $configure.Enabled=$true }

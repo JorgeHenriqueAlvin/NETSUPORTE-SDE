@@ -8,6 +8,8 @@ static class Program
         try
         {
 #if AGENT_ONLY
+            using var single=new Mutex(true,@"Local\SDE-Suporte-Agent",out var first);
+            if(!first)return;
             var path=Path.Combine(AppContext.BaseDirectory,"agent.json");
             Application.Run(File.Exists(path)?new Agent(path):new MissingSetup());
 #else

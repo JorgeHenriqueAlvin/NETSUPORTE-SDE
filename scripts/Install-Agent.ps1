@@ -18,7 +18,7 @@ if ($Port -lt 1024 -or $Port -gt 65535) { throw 'Porta invalida.' }
 if ($TechnicianFiles.Count -eq 0) { throw 'Selecione a identificacao publica de pelo menos um tecnico.' }
 $sha=[System.Security.Cryptography.SHA256]::Create()
 $techs=@($TechnicianFiles | ForEach-Object {
- $tech=Get-Content -LiteralPath $_ -Raw | ConvertFrom-Json
+ $tech=Get-Content -LiteralPath $_ -Raw -Encoding UTF8 | ConvertFrom-Json
  $publicBytes=[Convert]::FromBase64String($tech.publicKey)
  $id=([BitConverter]::ToString($sha.ComputeHash($publicBytes))).Replace('-','')
  if ($tech.id -cne $id -or [string]::IsNullOrWhiteSpace($tech.name) -or $tech.name.Length -gt 80 -or $tech.name -match '[\x00-\x1F\x7F]') { throw "Identificacao de tecnico invalida: $_" }
