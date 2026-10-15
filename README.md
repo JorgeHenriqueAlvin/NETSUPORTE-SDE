@@ -21,11 +21,20 @@ Não contém chat, transferência de arquivos, reinicialização, descoberta aut
 
 O agente roda sem elevação na sessão interativa, não como serviço. Não atende máquinas sem usuário conectado, bloqueadas ou com sessões simultâneas. Não contorna UAC. O funcionário não tem botões no agente; como o processo roda na sua conta, ainda pode encerrá-lo pelo Gerenciador de Tarefas. Bloqueio de encerramento não está implementado. Logs locais são evidência operacional do piloto, não auditoria inviolável. Para 400 máquinas, a próxima etapa é validar gerenciamento por GPO, centralização de logs e transporte de vídeo mais eficiente. Não há teste de capacidade para 400 conexões simultâneas.
 
+## Domínio confirmado da empresa
+
+- Domínio Windows: `SICM`.
+- Domínio DNS: `SICM.INTRANET`.
+- Login confirmado do técnico: `SICM\jorge.alvin`.
+- O aviso de atendimento usa a identidade autenticada real; o nome acima não fica fixado no aplicativo.
+- `SICM\SDE-Suporte-CMTIC` é uma sugestão de grupo, ainda não confirmado/criado. A conta do técnico precisa pertencer ao grupo autorizado configurado na máquina.
+- `pc-piloto.SICM.INTRANET` é apenas exemplo. Substitua pelo FQDN real; certificado e DNS devem corresponder à máquina.
+
 ## 1. Preparação pela equipe de domínio
 
 1. Escolha duas máquinas piloto Windows x64, no domínio, uma do técnico e outra do funcionário. Use versões Windows homologadas pela TI.
 2. Tenha o SDK .NET 10 na máquina de compilação (https://dotnet.microsoft.com/download/dotnet/10.0). A compilação inicial precisa baixar componentes; os executáveis publicados serão autocontidos.
-3. Crie um grupo de segurança AD para o setor, por exemplo `SEUDOMINIO\SDE-Suporte-CMTIC`, e adicione somente os técnicos autorizados. Funcionários comuns NÃO devem pertencer a esse grupo. Após mudar grupos, faça logoff/login do técnico para renovar o token.
+3. Crie um grupo de segurança AD para o setor, por exemplo `SICM\SDE-Suporte-CMTIC`, e adicione somente os técnicos autorizados. Funcionários comuns NÃO devem pertencer a esse grupo. Após mudar grupos, faça logoff/login do técnico para renovar o token.
 4. Emita pela CA interna um certificado de servidor para cada agente, com SAN igual ao FQDN e EKU Server Authentication, instalado em LocalMachine\My com chave privada. O computador do técnico deve confiar na CA e resolver o FQDN pelo DNS interno.
 5. Anote a sub-rede real dos técnicos. Não abra porta no roteador nem publique o agente na internet.
 6. A atribuição de setor é da máquina: usuários podem alternar seus logins sem mudar os grupos autorizados no agente.
@@ -46,9 +55,9 @@ Copie o projeto com `dist` para essa máquina. No PowerShell como administrador,
 
 ```powershell
 .\scripts\Install-Agent.ps1 `
-  -Hostname 'pc-piloto.seudominio.local' `
+  -Hostname 'pc-piloto.SICM.INTRANET' `
   -Sector 'CMTIC' `
-  -AllowedGroups 'SEUDOMINIO\SDE-Suporte-CMTIC' `
+  -AllowedGroups 'SICM\SDE-Suporte-CMTIC' `
   -CertificateThumbprint 'IMPRESSAO_DIGITAL_REAL_DO_CERTIFICADO' `
   -TechnicianSubnets '10.0.10.0/24' `
   -AuthorizedUnattended
