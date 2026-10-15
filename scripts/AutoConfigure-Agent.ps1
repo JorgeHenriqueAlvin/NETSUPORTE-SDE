@@ -1,7 +1,7 @@
 #Requires -RunAsAdministrator
 param([Parameter(Mandatory)][string]$DeploymentProfile,[Parameter(Mandatory)][string]$PayloadDirectory,
  [string]$InstallDirectory="$env:ProgramFiles\SDE-Suporte\Agent",[int]$Port=7443,[switch]$NoStartup,[switch]$NonInteractive,
- [string]$BinaryDirectory='', [switch]$NoSeparateUninstall)
+ [string]$BinaryDirectory='', [switch]$NoSeparateUninstall,[bool]$RequireConsent=$true)
 $ErrorActionPreference='Stop'
 if($PSVersionTable.PSEdition -eq 'Desktop') {
  # Installers launched from PowerShell 7 can inherit its module directories.
@@ -26,7 +26,7 @@ try {
  New-Item -ItemType Directory -Path $tools -Force | Out-Null
  Copy-Item "$PayloadDirectory\Uninstall-Agent.ps1" $tools -Force
  if(-not $BinaryDirectory){$BinaryDirectory=Join-Path $PayloadDirectory 'Agent'}
- & "$PayloadDirectory\Install-Agent.ps1" -Sector $permission.sector -TechnicianFiles $files -ExportPath (Join-Path $PayloadDirectory 'computer.sdehost') -InstallDirectory $directory -BinaryDirectory $BinaryDirectory -TechnicianNetworks @($networks | Select-Object -Unique) -Port $Port -NoStartup:$NoStartup
+ & "$PayloadDirectory\Install-Agent.ps1" -Sector $permission.sector -TechnicianFiles $files -ExportPath (Join-Path $PayloadDirectory 'computer.sdehost') -InstallDirectory $directory -BinaryDirectory $BinaryDirectory -TechnicianNetworks @($networks | Select-Object -Unique) -Port $Port -NoStartup:$NoStartup -RequireConsent $RequireConsent
  $seal=Start-Process "$directory\SDE-Suporte-Cliente.exe" -ArgumentList @('--seal',"`"$DeploymentProfile`"") -PassThru -Wait
  if($seal.ExitCode -ne 0) { throw 'Nao foi possivel validar a autorizacao do instalador.' }
  Get-NetFirewallRule -Name SDE-Suporte-Discover-7446 -ErrorAction SilentlyContinue | Remove-NetFirewallRule

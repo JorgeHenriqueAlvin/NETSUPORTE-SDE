@@ -1,7 +1,7 @@
 namespace SdeSuporte;
 
 public record MessageText(string Text);
-public record AnnouncementRequest(string Id,string Text);
+public record AnnouncementRequest(string Id,string Text,string? ImageBase64=null);
 public record SupportMessage(long Sequence,string Sender,string Text,DateTimeOffset At);
 public record ChatPage(SupportMessage[] Messages);
 
@@ -75,18 +75,33 @@ sealed class EmployeeChat:Form
 sealed class EmployeeAnnouncements:Form
 {
     readonly RichTextBox history=new(){Dock=DockStyle.Fill,ReadOnly=true,DetectUrls=false,BackColor=Color.White,Font=new Font("Segoe UI",12)};
+    readonly FlowLayoutPanel board=new(){Dock=DockStyle.Fill,AutoScroll=true,WrapContents=false,FlowDirection=FlowDirection.TopDown};
+    readonly TabControl pages=new(){Dock=DockStyle.Fill};
+    public string HistoryText=>history.Text;
     public EmployeeAnnouncements()
     {
         Text="SDE Suporte — avisos da TI";Size=new(620,430);MinimumSize=new(380,250);TopMost=true;
-        StartPosition=FormStartPosition.CenterScreen;Controls.Add(history);
+        StartPosition=FormStartPosition.CenterScreen;
+        var gallery=new TabPage("Quadro de avisos");gallery.Controls.Add(board);var texts=new TabPage("Histórico de textos");texts.Controls.Add(history);pages.TabPages.AddRange([gallery,texts]);Controls.Add(pages);
+        board.SizeChanged+=(_,_)=>{foreach(Control card in board.Controls)card.Width=Math.Max(260,board.ClientSize.Width-30);};
+        FormClosed+=(_,_)=>{foreach(Control card in board.Controls)foreach(var picture in card.Controls.OfType<PictureBox>())picture.Image?.Dispose();};
         var close=new Button{Dock=DockStyle.Bottom,Height=40,Text="Fechar"};close.Click+=(_,_)=>Hide();Controls.Add(close);Premium.Apply(this);
         FormClosing+=(_,e)=>{if(e.CloseReason==CloseReason.UserClosing){e.Cancel=true;Hide();}};
     }
-    public void Receive(SupportMessage message)
+    public void Receive(SupportMessage message,string? imageBase64=null)
     {
+        Image? photo=imageBase64 is null?null:NoticeImages.Decode(imageBase64);
         if(history.TextLength>100000)history.Clear();
         history.AppendText($"AVISO DA TI • {message.At.ToLocalTime():dd/MM HH:mm}\n\n{message.Text}\n\n────────────\n\n");
-        history.SelectionStart=history.TextLength;history.ScrollToCaret();Show();Activate();
+        history.SelectionStart=history.TextLength;history.ScrollToCaret();
+        var card=new Panel{Width=Math.Max(260,board.ClientSize.Width-30),Height=photo is null?150:490,Padding=new Padding(10),BackColor=Color.White,Margin=new Padding(8)};
+        var caption=new TextBox{Dock=DockStyle.Bottom,Height=100,Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical,BorderStyle=BorderStyle.None,Text=message.Text};
+        if(photo is not null)card.Controls.Add(new PictureBox{Dock=DockStyle.Fill,Image=photo,SizeMode=PictureBoxSizeMode.Zoom});
+        card.Controls.Add(caption);
+        card.Controls.Add(new Label{Dock=DockStyle.Top,Height=30,Text=$"AVISO DA TI • {message.At.ToLocalTime():dd/MM HH:mm}",Font=new Font("Segoe UI Semibold",11)});
+        board.Controls.Add(card);
+        while(board.Controls.Count>8){var first=board.Controls[0];foreach(var picture in first.Controls.OfType<PictureBox>())picture.Image?.Dispose();board.Controls.Remove(first);first.Dispose();}
+        pages.SelectedIndex=0;Show();board.ScrollControlIntoView(card);Activate();
     }
 }
 

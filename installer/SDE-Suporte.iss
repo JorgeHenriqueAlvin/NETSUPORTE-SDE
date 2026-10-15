@@ -1,4 +1,4 @@
-#define AppVersion "0.10.0"
+#define AppVersion "0.11.0"
 #ifndef SetupRole
   #define SetupRole "combined"
 #endif
@@ -58,6 +58,7 @@ Source: "..\release\SDE-Suporte-Cliente-Instalar.exe.sha256"; DestDir: "{app}\Pa
 #endif
 #if SetupRole != "technician"
 Source: "..\dist\Agent\*"; DestDir: "{app}\Agent"; Flags: ignoreversion recursesubdirs createallsubdirs{#ClientComponent}
+Source: "..\scripts\Configure-AccessPolicy.ps1"; DestDir: "{app}\scripts"{#ClientComponent}
 Source: "..\scripts\Install-Agent.ps1"; DestDir: "{app}\scripts"{#ClientComponent}
 Source: "..\scripts\Uninstall-Agent.ps1"; DestDir: "{app}\scripts"{#ClientComponent}
 Source: "..\scripts\AutoConfigure-Agent.ps1"; DestDir: "{app}\scripts"{#ClientComponent}
@@ -81,6 +82,7 @@ Name: "{group}\Instruções"; Filename: "{app}\QUICKSTART.md"
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\Cleanup-Agent.ps1"""; Flags: waituntilterminated; RunOnceId: "CleanupSdeSuporte"
 [UninstallDelete]
 Type: files; Name: "{app}\Agent\agent.json"
+Type: files; Name: "{app}\Agent\access-policy.json"
 Type: files; Name: "{app}\Agent\setup-error.txt"
 Type: files; Name: "{app}\scripts\computer.sdehost"
 Type: files; Name: "{app}\scripts\*.sdetech"

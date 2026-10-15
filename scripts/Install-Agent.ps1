@@ -5,7 +5,7 @@ param(
  [Parameter(Mandatory)][string[]]$TechnicianFiles,
  [Parameter(Mandatory)][string]$ExportPath,
  [string[]]$TechnicianNetworks = @('LocalSubnet'),
- [bool]$RequireConsent = $false,
+ [bool]$RequireConsent = $true,
  [int]$Port = 7443,
  [string]$InstallDirectory = "$env:ProgramFiles\SDE-Suporte\Agent",
  [string]$BinaryDirectory = '',

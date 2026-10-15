@@ -92,7 +92,7 @@ sealed class Agent:Form
             // team signature and binds the advertised pin to the actual TLS certificate.
             if(c.Request.HttpMethod=="GET"&&c.Request.RawUrl=="/discover"&&config.Enrollment is not null)
             {await Reply(c.Response,200,new DiscoveryMessage("SDE-DISCOVERY-1",config.Enrollment));return;}
-            int bodyLimit=c.Request.Url!.AbsolutePath is "/chat" or "/announcement"?16384:8192;
+            int bodyLimit=c.Request.Url!.AbsolutePath=="/announcement"?4*1024*1024:c.Request.Url.AbsolutePath=="/chat"?16384:8192;
             if((c.Request.HasEntityBody && c.Request.ContentLength64<0) || c.Request.ContentLength64>bodyLimit){await Reply(c.Response,413,new{error="Requisição grande ou sem tamanho."});return;}
             byte[] body=new byte[(int)Math.Max(0,c.Request.ContentLength64)];
             using(var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(5)))await c.Request.InputStream.ReadExactlyAsync(body,timeout.Token);
@@ -100,13 +100,13 @@ sealed class Agent:Form
             var tech=verifier.Verify(H("X-Technician"),H("X-Device"),c.Request.HttpMethod,c.Request.RawUrl??"/",body,H("X-Session"),H("X-Time"),H("X-Nonce"),H("X-Signature"),H("X-Team-Credential"));
             if(tech is null){await Reply(c.Response,403,new{error="Técnico não autorizado. Verifique o código da equipe no console."});return;}
             user=tech.Name;var path=c.Request.Url!.AbsolutePath;var method=c.Request.HttpMethod;
-            if(path=="/info" && method=="GET") {await Reply(c.Response,200,new{config.Device.Id,config.Device.Name,config.Device.Sector,version="0.10.0",capabilities=new[]{"chat","announcements"},available=!unavailable&&Native.DesktopAvailable()});return;}
+            if(path=="/info" && method=="GET") {await Reply(c.Response,200,new{config.Device.Id,config.Device.Name,config.Device.Sector,version="0.11.0",capabilities=new[]{"chat","announcements","announcement-images"},available=!unavailable&&Native.DesktopAvailable()});return;}
             if(path=="/announcement"&&method=="POST")
             {
                 var notice=JsonSerializer.Deserialize<AnnouncementRequest>(body,Json.Options);
                 if(notice is null||!Guid.TryParseExact(notice.Id,"D",out _)){await Reply(c.Response,400,new{error="Aviso inválido."});return;}
                 string value;
-                try{value=MessageHistory.Validate(notice.Text);}catch(ArgumentException e){await Reply(c.Response,400,new{error=e.Message});return;}
+                try{value=NoticeImages.Caption(notice.Text,notice.ImageBase64 is not null);if(notice.ImageBase64 is not null){using var validated=NoticeImages.Decode(notice.ImageBase64);}}catch(ArgumentException e){await Reply(c.Response,400,new{error=e.Message});return;}
                 string key=tech.Id+notice.Id;
                 if(announcementIds.ContainsKey(key)){await Reply(c.Response,200,new{received=true,duplicate=true});return;}
                 var now=DateTimeOffset.UtcNow;
@@ -115,9 +115,9 @@ sealed class Agent:Form
                 foreach(var expired in announcementIds.Where(x=>now-x.Value>TimeSpan.FromHours(1)).Select(x=>x.Key).ToArray())announcementIds.Remove(expired);
                 if(announcementIds.Count>=512)announcementIds.Remove(announcementIds.MinBy(x=>x.Value).Key);
                 // One reusable, plain-text window; receiving a notice never authorizes screen/input access.
-                Audit("announcement_received",user,notice.Id);
+                Audit("announcement_received",user,notice.Id+(notice.ImageBase64 is null?"":" image_sha256="+Convert.ToHexString(SHA256.HashData(Convert.FromBase64String(notice.ImageBase64)))));
                 announcements??=new EmployeeAnnouncements();
-                announcements.Receive(new(0,user,value,now));
+                announcements.Receive(new(0,user,value,now),notice.ImageBase64);
                 announcementIds[key]=now;lastAnnouncement[tech.Id]=now;
                 await Reply(c.Response,200,new{received=true,duplicate=false});return;
             }
@@ -125,7 +125,25 @@ sealed class Agent:Form
             {
                 if(session is not null){await Reply(c.Response,409,new{error="Computador já está em atendimento."});return;}
                 if(unavailable||!Native.DesktopAvailable()){await Reply(c.Response,409,new{error="O funcionário precisa estar conectado e com a área de trabalho desbloqueada."});return;}
-                if(config.RequireConsent){using var consent=new Consent(user);if(consent.ShowDialog()!=DialogResult.Yes){Audit("declined",user);await Reply(c.Response,403,new{error="Atendimento recusado."});return;}}
+                Audit("access_requested",user,tech.Id);
+                bool requireConsent=config.RequireConsent;
+                var policyPath=Path.Combine(AppContext.BaseDirectory,"access-policy.json");
+                if(File.Exists(policyPath))
+                {
+                    try{using var policy=JsonDocument.Parse(File.ReadAllText(policyPath));var p=policy.RootElement;
+                        if(p.GetProperty("deviceId").GetString()!=config.Device.Id)throw new InvalidDataException();
+                        requireConsent=p.GetProperty("mode").GetString()!="PreAutorizado";
+                        if(!requireConsent&&string.IsNullOrWhiteSpace(p.GetProperty("reason").GetString()))throw new InvalidDataException();
+                        Audit("access_policy",user,p.GetProperty("approvedBy").GetString()+" | "+p.GetProperty("reason").GetString());
+                    }catch{requireConsent=true;Audit("invalid_access_policy",user);}
+                }
+                if(requireConsent)
+                {
+                    using var consent=new Consent(user);var decision=consent.ShowDialog();
+                    if(decision!=DialogResult.Yes){Audit(consent.TimedOut?"consent_timeout":"consent_declined",user);await Reply(c.Response,403,new{error=consent.TimedOut?"O funcionário não respondeu. Acesso não autorizado.":"Atendimento recusado pelo funcionário."});return;}
+                    Audit("consent_approved",user);
+                }
+                else Audit("preauthorized_access",user,"Política administrativa local; sem bypass de recusa.");
                 if(unavailable||!Native.DesktopAvailable()){await Reply(c.Response,409,new{error="Computador indisponível."});return;}
                 var active=new RemoteSession(Convert.ToHexString(RandomNumberGenerator.GetBytes(32)),tech.Id,tech.Name,DateTimeOffset.UtcNow,DateTimeOffset.UtcNow.AddHours(1));
                 Audit("started",user);session=active;activity=DateTimeOffset.UtcNow;
@@ -203,12 +221,14 @@ sealed class Agent:Form
 }
 sealed class Consent:Form
 {
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public bool TimedOut {get;private set;}
     public Consent(string user)
     {
         Text="SDE Suporte — autorizar atendimento";Width=500;Height=220;ControlBox=false;StartPosition=FormStartPosition.CenterScreen;TopMost=true;
         var yes=new Button{Text="Autorizar",DialogResult=DialogResult.Yes,Dock=DockStyle.Bottom,Height=40};
         var no=new Button{Text="Recusar",DialogResult=DialogResult.No,Dock=DockStyle.Bottom,Height=40};
         Controls.Add(new Label{Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleCenter,Text=$"{user} solicita visualizar e controlar o computador.\nA solicitação expira em 30 segundos."});Controls.Add(yes);Controls.Add(no);ActiveControl=no;CancelButton=no;
-        var t=new System.Windows.Forms.Timer{Interval=30000};t.Tick+=(_,_)=>{DialogResult=DialogResult.No;Close();};Shown+=(_,_)=>t.Start();FormClosed+=(_,_)=>t.Dispose();
+        var t=new System.Windows.Forms.Timer{Interval=30000};t.Tick+=(_,_)=>{TimedOut=true;DialogResult=DialogResult.No;Close();};Shown+=(_,_)=>t.Start();FormClosed+=(_,_)=>t.Dispose();
     }
 }

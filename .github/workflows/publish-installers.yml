@@ -18,7 +18,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       TRIGGER_RUN: ${{ github.event.workflow_run.id }}
-      RELEASE_TAG: v0.10.0
+      RELEASE_TAG: v0.11.0
     steps:
       - name: Selecionar compilacao Windows aprovada e baixar os instaladores
         shell: bash
@@ -34,7 +34,7 @@ jobs:
           [[ "$conclusion" == 'success' ]]
           build_sha=$(gh api "repos/$GH_REPO/actions/runs/$run_id" --jq '.head_sha')
           echo "BUILD_SHA=$build_sha" >> "$GITHUB_ENV"
-          gh run download "$run_id" --repo "$GH_REPO" --name SDE-Suporte-Instaladores-0.10.0 --dir package
+          gh run download "$run_id" --repo "$GH_REPO" --name SDE-Suporte-Instaladores-0.11.0 --dir package
           test -s package/release/SDE-Suporte-Cliente-Instalar.exe
           test -s package/release/SDE-Suporte-Tecnico-Base.exe
       - name: Publicar arquivos com download direto
@@ -67,7 +67,7 @@ jobs:
           O arquivo Técnico-Base é somente um modelo de compilação. O instalador técnico já autorizado é distribuído privadamente pela TI e não é um download público. Clientes 0.6 continuam compatíveis com atendimento básico; chat e avisos exigem Cliente 0.7.0 ou posterior.
           NOTES
           if ! gh release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" --repo "$GH_REPO" --target "$BUILD_SHA" --title 'SDE Suporte 0.10.0 — detecção automática de monitores' --notes-file notes.md
+            gh release create "$RELEASE_TAG" --repo "$GH_REPO" --target "$BUILD_SHA" --title 'SDE Suporte 0.11.0 — autorização do funcionário e avisos com fotos' --notes-file notes.md
           else
             tag_sha=$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')
             if [[ "$tag_sha" != "$BUILD_SHA" ]]; then
@@ -81,6 +81,6 @@ jobs:
           for name in ['SDE-Suporte-Cliente-Instalar.exe','SDE-Suporte-Tecnico-Base.exe']:
               data=(pathlib.Path('package/release')/name).read_bytes()
               assets[name]={'sha256':hashlib.sha256(data).hexdigest(),'size':len(data)}
-          pathlib.Path('package/update.json').write_text(json.dumps({'version':'0.10.0','assets':assets}))
+          pathlib.Path('package/update.json').write_text(json.dumps({'version':'0.11.0','assets':assets}))
           PYMANIFEST
           gh release upload "$RELEASE_TAG" --repo "$GH_REPO" --clobber package/release/SDE-Suporte-Cliente-Instalar.exe package/release/SDE-Suporte-Tecnico-Base.exe package/QUICKSTART.md package/update.json

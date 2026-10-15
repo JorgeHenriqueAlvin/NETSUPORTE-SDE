@@ -130,7 +130,8 @@ public sealed class RemoteClient : IDisposable
         if(identity.Credential is not null)request.Headers.Add("X-Team-Credential",TeamAccess.Encode(identity.Credential));
         request.Headers.Add("X-Signature",identity.Sign(method.Method,path,body,session,time,nonce,deviceId));
         if(value is not null) { request.Content=new ByteArrayContent(body); request.Content.Headers.ContentType=new("application/json"); }
-        var response=await http.SendAsync(request);
+        using var requestLimit=new CancellationTokenSource(TimeSpan.FromSeconds(path=="/session"?40:8));
+        var response=await http.SendAsync(request,requestLimit.Token);
         if(!response.IsSuccessStatusCode)
         {
             string message=await response.Content.ReadAsStringAsync(); var status=response.StatusCode; response.Dispose();

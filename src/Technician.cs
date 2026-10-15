@@ -12,8 +12,11 @@ sealed class Technician:Form
     readonly TabPage noticesPage=new("Avisos globais");
     readonly MessagePanel chatPanel=new();
     readonly TextBox noticeText=new(){Dock=DockStyle.Top,Multiline=true,Height=140,MaxLength=2000,ScrollBars=ScrollBars.Vertical};
+    readonly CheckedListBox noticeTargets=new(){Dock=DockStyle.Left,Width=270,CheckOnClick=true};
     readonly ListBox noticeResults=new(){Dock=DockStyle.Fill,HorizontalScrollbar=true};
-    readonly Button sendNotice=new(){Dock=DockStyle.Top,Height=45,Text="Enviar aviso aos clientes online"};
+    string? noticeImage;
+    readonly PictureBox noticePreview=new(){Dock=DockStyle.Top,Height=150,SizeMode=PictureBoxSizeMode.Zoom,Visible=false};
+    readonly Button sendNotice=new(){Dock=DockStyle.Top,Height=45,Text="Enviar aviso aos clientes selecionados"};
     readonly CheckBox autoFullScreen=new(){AutoSize=true,Text="Abrir em tela cheia",Checked=true};
     readonly System.Windows.Forms.Timer chatClock=new(){Interval=1000};
     FullScreenWindow? fullScreen;
@@ -76,8 +79,22 @@ sealed class Technician:Form
         remotePage.Controls.Add(screen);remotePage.Controls.Add(monitorBar);chatPage.Controls.Add(chatPanel);
         var deploymentPage=new TabPage("Implantar Clientes");deploymentPage.Controls.Add(new DeploymentPanel());
         tabs.TabPages.AddRange([remotePage,chatPage,noticesPage,deploymentPage,UpdatesPage()]);
-        var noticeHeader=new Label{Dock=DockStyle.Top,Height=65,Text="Envie um aviso de texto a todos os clientes online da lista, inclusive fora do filtro.\nO funcionário verá apenas “Aviso da TI”, sem o nome do remetente. Entrega não significa leitura.",Padding=new Padding(8)};
-        noticesPage.Padding=new Padding(12);noticesPage.Controls.Add(noticeResults);noticesPage.Controls.Add(sendNotice);noticesPage.Controls.Add(noticeText);noticesPage.Controls.Add(noticeHeader);
+        var noticeHeader=new Label{Dock=DockStyle.Top,Height=65,Text="Marque os clientes ou use Selecionar todos. Envie texto, foto ou os dois.\nO funcionário verá apenas “Aviso da TI”, sem o nome do remetente. Entrega não significa leitura.",Padding=new Padding(8)};
+        noticesPage.Padding=new Padding(12);noticesPage.Controls.Add(noticeResults);noticesPage.Controls.Add(noticeTargets);noticesPage.Controls.Add(sendNotice);noticesPage.Controls.Add(noticeText);noticesPage.Controls.Add(noticePreview);
+        var photoBar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=45};
+        var attach=new Button{Text="Adicionar foto",AutoSize=true};var removePhoto=new Button{Text="Remover foto",AutoSize=true};
+        attach.Click+=async(_,_)=>await Safe(()=>{using var dialog=new OpenFileDialog{Filter="Fotos JPEG ou PNG|*.jpg;*.jpeg;*.png"};if(dialog.ShowDialog()!=DialogResult.OK)return Task.CompletedTask;var normalized=NoticeImages.FromFile(dialog.FileName);var photo=NoticeImages.Decode(normalized);noticeImage=normalized;var previous=noticePreview.Image;noticePreview.Image=photo;previous?.Dispose();noticePreview.Visible=true;return Task.CompletedTask;});
+        removePhoto.Click+=(_,_)=>{noticeImage=null;var previous=noticePreview.Image;noticePreview.Image=null;previous?.Dispose();noticePreview.Visible=false;};
+        var allTargets=new Button{Text="Selecionar todos",AutoSize=true};var clearTargets=new Button{Text="Limpar seleção",AutoSize=true};var refreshTargets=new Button{Text="Atualizar clientes",AutoSize=true};
+        void Targets(){var chosen=noticeTargets.CheckedItems.Cast<Device>().Select(d=>d.Id).ToHashSet();noticeTargets.Items.Clear();foreach(var d in devices.Where(d=>online.TryGetValue(d.Id,out var seen)&&DateTimeOffset.UtcNow-seen<TimeSpan.FromSeconds(45)).OrderBy(d=>d.Name))noticeTargets.Items.Add(d,chosen.Contains(d.Id));}
+        allTargets.Click+=(_,_)=>{Targets();for(int i=0;i<noticeTargets.Items.Count;i++)noticeTargets.SetItemChecked(i,true);};
+        clearTargets.Click+=(_,_)=>{for(int i=0;i<noticeTargets.Items.Count;i++)noticeTargets.SetItemChecked(i,false);};refreshTargets.Click+=(_,_)=>Targets();
+        tabs.SelectedIndexChanged+=(_,_)=>{if(tabs.SelectedTab==noticesPage)Targets();};
+        photoBar.Controls.AddRange([attach,removePhoto]);
+        var targetTools=new FlowLayoutPanel{Dock=DockStyle.Top,Height=110};targetTools.Controls.AddRange([allTargets,clearTargets,refreshTargets]);
+        var targetColumn=new Panel{Dock=DockStyle.Left,Width=275};noticeTargets.Dock=DockStyle.Fill;targetColumn.Controls.Add(noticeTargets);targetColumn.Controls.Add(targetTools);noticesPage.Controls.Add(photoBar);noticesPage.Controls.Add(noticeHeader);
+        var noticeContent=new Panel{Dock=DockStyle.Fill};foreach(Control item in noticesPage.Controls.Cast<Control>().ToArray())noticeContent.Controls.Add(item);
+        noticesPage.Controls.Add(noticeContent);noticesPage.Controls.Add(targetColumn);
         sendNotice.Click+=async(_,_)=>await Safe(Broadcast);
         chatPanel.SetAvailable(false);chatPanel.SetTitle("Conecte a uma máquina para conversar com o funcionário.");
         chatPanel.Send=SendChat;
@@ -122,16 +139,16 @@ sealed class Technician:Form
         screen.KeyUp+=async(_,e)=>{e.SuppressKeyPress=true;if(e.KeyCode==Keys.F11)return;if(held.Remove(e.KeyValue))await Safe(()=>Input(new("keyUp",Key:e.KeyValue)));};
         screen.LostFocus+=async(_,_)=>{foreach(int k in held.ToArray())await Safe(()=>Input(new("keyUp",Key:k)));held.Clear();};
         FormClosing+=async(_,e)=>{if(closing)return;e.Cancel=true;closing=true;lifetime.Cancel();scanning?.Cancel();Enabled=false;try{await Disconnect();}catch{}finally{Close();}};
-        FormClosed+=(_,_)=>{discovery?.Dispose();presence.Dispose();scanClock.Dispose();chatClock.Dispose();advanced.Dispose();if(dirty)SaveDevices();timer.Dispose();client?.Dispose();identity.Dispose();screen.Image?.Dispose();};
+        FormClosed+=(_,_)=>{discovery?.Dispose();presence.Dispose();scanClock.Dispose();chatClock.Dispose();advanced.Dispose();if(dirty)SaveDevices();timer.Dispose();client?.Dispose();identity.Dispose();screen.Image?.Dispose();noticePreview.Image?.Dispose();};
     }
     TabPage UpdatesPage()
     {
         var page=new TabPage("Atualizações");
         var title=new Label{Dock=DockStyle.Top,Height=65,Text="Seu suporte sempre atualizado",Font=new Font("Segoe UI Semibold",19),Padding=new Padding(12)};
-        var description=new Label{Dock=DockStyle.Top,Height=160,Padding=new Padding(12),Text="Versão instalada: 0.10.0\n\nA atualização automática é habilitada pelo instalador. Novas versões são verificadas diariamente no GitHub e os pacotes passam por verificação de integridade.\n\nAs atualizações são instaladas quando Cliente e Técnico estão fechados, inclusive na próxima inicialização. A máquina precisa de acesso à internet para baixar as versões."};
+        var description=new Label{Dock=DockStyle.Top,Height=160,Padding=new Padding(12),Text="Versão instalada: 0.11.0\n\nA atualização automática é habilitada pelo instalador. Novas versões são verificadas diariamente no GitHub e os pacotes passam por verificação de integridade.\n\nAs atualizações são instaladas quando Cliente e Técnico estão fechados, inclusive na próxima inicialização. A máquina precisa de acesso à internet para baixar as versões."};
         var result=new TextBox{Dock=DockStyle.Fill,Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical};
         var check=new Button{Dock=DockStyle.Top,Height=45,Text="Verificar nova versão"};
-        check.Click+=async(_,_)=>{check.Enabled=false;try{using var http=new HttpClient{Timeout=TimeSpan.FromSeconds(20)};using var data=JsonDocument.Parse(await http.GetStringAsync("https://github.com/JorgeHenriqueAlvin/NETSUPORTE-SDE/releases/latest/download/update.json"));string version=data.RootElement.GetProperty("version").GetString()??"";result.Text=Version.TryParse(version,out var next)&&next>new Version("0.10.0")?$"Versão {version} disponível. O atualizador fará a instalação automaticamente quando os aplicativos estiverem fechados.":"Você está usando a versão mais recente.";}catch(Exception){result.Text="Não foi possível consultar o GitHub. O suporte na rede local continua disponível; o atualizador tentará novamente depois.";}finally{if(!check.IsDisposed)check.Enabled=true;}};
+        check.Click+=async(_,_)=>{check.Enabled=false;try{using var http=new HttpClient{Timeout=TimeSpan.FromSeconds(20)};using var data=JsonDocument.Parse(await http.GetStringAsync("https://github.com/JorgeHenriqueAlvin/NETSUPORTE-SDE/releases/latest/download/update.json"));string version=data.RootElement.GetProperty("version").GetString()??"";result.Text=Version.TryParse(version,out var next)&&next>new Version("0.11.0")?$"Versão {version} disponível. O atualizador fará a instalação automaticamente quando os aplicativos estiverem fechados.":"Você está usando a versão mais recente.";}catch(Exception){result.Text="Não foi possível consultar o GitHub. O suporte na rede local continua disponível; o atualizador tentará novamente depois.";}finally{if(!check.IsDisposed)check.Enabled=true;}};
         page.Controls.Add(result);page.Controls.Add(check);page.Controls.Add(description);page.Controls.Add(title);return page;
     }
     void LoadTeamCredential()
@@ -260,7 +277,7 @@ sealed class Technician:Form
         {
             await Disconnect();if(list.SelectedItem is not Device d)throw new Exception("Selecione um computador na lista. Use Varredura de IP se ele ainda não apareceu.");
             selectedMonitor="primary";monitorSignature="";monitorPicker.Items.Clear();monitorPicker.Enabled=true;frameLayout="";frameOffsetX=frameOffsetY=0;
-            client=new(d,identity,TimeSpan.FromSeconds(8));await client.Start();online[d.Id]=DateTimeOffset.UtcNow;list.Invalidate();status.Text=$"ATENDIMENTO: {d.Name} • {d.Sector} | Técnico: {identity.Public.Name}";
+            client=new(d,identity,TimeSpan.FromSeconds(45));status.Text="Aguardando autorização do funcionário (até 30 segundos)...";await client.Start();online[d.Id]=DateTimeOffset.UtcNow;list.Invalidate();status.Text=$"ATENDIMENTO: {d.Name} • {d.Sector} | Técnico: {identity.Public.Name}";
             chatAvailable=true; // Supported by all currently distributed clients; first image takes priority.
             chatCursor=0;chatPanel.ClearHistory();chatPanel.SetAvailable(chatAvailable);
             chatPanel.SetTitle(chatAvailable?$"Conversa com {d.Name} • Técnico: {identity.Public.Name}":"Atualize o Cliente para usar o chat.");
@@ -352,12 +369,12 @@ sealed class Technician:Form
     }
     async Task Broadcast()
     {
-        string value=MessageHistory.Validate(noticeText.Text);
-        var recipients=devices.Where(d=>online.TryGetValue(d.Id,out var seen)&&DateTimeOffset.UtcNow-seen<TimeSpan.FromSeconds(45)).ToArray();
-        if(recipients.Length==0)throw new InvalidOperationException("Nenhum Cliente online na lista. Instale o Cliente nos funcionários e atualize as máquinas.");
-        if(MessageBox.Show(this,$"Enviar este aviso para {recipients.Length} computador(es) online?\n\n{value}\n\nIdentificação exibida: Aviso da TI","Confirmar aviso global",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
-        sendNotice.Enabled=false;noticeText.ReadOnly=true;noticeResults.Items.Clear();
-        var message=new AnnouncementRequest(Guid.NewGuid().ToString(),value);
+        string value=NoticeImages.Caption(noticeText.Text,noticeImage is not null);
+        var recipients=noticeTargets.CheckedItems.Cast<Device>().Where(d=>online.TryGetValue(d.Id,out var seen)&&DateTimeOffset.UtcNow-seen<TimeSpan.FromSeconds(45)).ToArray();
+        if(recipients.Length==0)throw new InvalidOperationException("Marque pelo menos um Cliente online ou clique em Selecionar todos.");
+        if(MessageBox.Show(this,$"Enviar este aviso para {recipients.Length} computador(es) online?\n\n{value}\n\nFoto anexada: {(noticeImage is null?"não":"sim")}\nIdentificação exibida: Aviso da TI","Confirmar aviso global",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
+        sendNotice.Enabled=false;noticeTargets.Enabled=false;noticeText.ReadOnly=true;noticeResults.Items.Clear();
+        var message=new AnnouncementRequest(Guid.NewGuid().ToString(),value,noticeImage);
         int delivered=0;using var limit=new SemaphoreSlim(8,8);
         try
         {
@@ -371,6 +388,7 @@ sealed class Technician:Form
                     using var info=JsonDocument.Parse(await response.Content.ReadAsStringAsync());
                     if(closing)return;
                     if(!HasCapability(info,"announcements")){noticeResults.Items.Add($"{device.Name} ({device.Host}): atualize o Cliente para receber avisos.");return;}
+                    if(message.ImageBase64 is not null&&!HasCapability(info,"announcement-images")){noticeResults.Items.Add($"{device.Name}: atualize o Cliente para receber fotos.");return;}
                     using var result=await recipient.Request(HttpMethod.Post,"/announcement",message);
                     delivered++;if(closing)return;noticeResults.Items.Add($"{device.Name} ({device.Host}): entregue ao agente.");
                 }
@@ -378,7 +396,7 @@ sealed class Technician:Form
                 finally{limit.Release();}
             }));
             if(!closing)noticeResults.Items.Add($"Concluído: {delivered}/{recipients.Length} entregues. Não há confirmação de leitura.");
-        }finally{if(!closing){sendNotice.Enabled=true;noticeText.ReadOnly=false;}}
+        }finally{if(!closing){sendNotice.Enabled=true;noticeTargets.Enabled=true;noticeText.ReadOnly=false;}}
     }
     Point? Map(int x,int y,bool clamp=false)
     {

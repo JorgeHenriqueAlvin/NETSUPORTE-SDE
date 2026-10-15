@@ -32,6 +32,7 @@ static class Tests
             if(args[0]=="template"){InstallerPackage.CreateTemplate(args[1],args[2],args[3]);return 0;}
             if(args[0]=="package"){using var creator=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Preparador");InstallerPackage.Personalize(args[1],args[2],Enrollment.Create(creator,[],"Teste"));return 0;}
             if(args[0]=="live-team"){await LiveTeam(args[1],args[2]);return 0;}
+            if(args[0]=="consent-live"){await ConsentLive(args[1],args[2]);return 0;}
             if(args[0]=="installed"){await Installed(args[1]);return 0;}
             if(args[0]=="package-technician"){
                 var root=Json.Read<TechnicianKey>(Path.Combine(args[2],"team-root.json"));
@@ -56,6 +57,14 @@ static class Tests
     {
         Check(MonitorCoordinates.Offset(new Point(50,60),1920,200)==new Point(1970,260),"entrada do monitor selecionado corresponde ao desktop virtual");
         Check(MonitorCoordinates.Offset(new Point(0,0),0,0)==Point.Empty,"monitor a esquerda do principal preserva origem virtual");
+        using(var sample=new Bitmap(320,180))
+        {
+            using(var graphics=Graphics.FromImage(sample))graphics.Clear(Color.CornflowerBlue);
+            string path=Path.Combine(Path.GetTempPath(),Guid.NewGuid()+".png");sample.Save(path,System.Drawing.Imaging.ImageFormat.Png);
+            try{var photo=NoticeImages.FromFile(path);using var decoded=NoticeImages.Decode(photo);Check(decoded.Width==320&&decoded.Height==180,"foto normalizada preserva proporcao e pode ser exibida");}finally{File.Delete(path);}
+        }
+        try{NoticeImages.Decode("<svg>conteudo</svg>");throw new Exception("foto invalida aceita");}catch(ArgumentException){Console.WriteLine("OK: arquivo que nao e imagem rejeitado");}
+        Check(NoticeImages.Caption("",true)=="","foto pode ser enviada sem legenda");
         var history=new MessageHistory();
         for(int i=0;i<205;i++)history.Add("Funcionário","Mensagem "+i);
         Check(history.After(0).Messages.Length==200&&history.After(204).Messages.Single().Sequence==205,"historico limitado preserva sequencia e cursor");
@@ -80,11 +89,20 @@ static class Tests
                 var composer=chat.Controls.OfType<Panel>().Single();composer.Controls.OfType<TextBox>().Single().Text="Resposta do funcionário";
                 composer.Controls.OfType<Button>().Single().PerformClick();Application.DoEvents();
                 Check(sent=="Resposta do funcionário","interface permite resposta do funcionario sem console tecnico");
-                using(var notice=new EmployeeAnnouncements()){notice.Receive(new(0,"NOME PRIVADO DO TECNICO","Aviso de teste",DateTimeOffset.UtcNow));var rendered=notice.Controls.OfType<RichTextBox>().Single().Text;Check(rendered.Contains("AVISO DA TI")&&rendered.Contains("Aviso de teste")&&!rendered.Contains("NOME PRIVADO"),"aviso global nao exibe nome do tecnico");}
+                using(var notice=new EmployeeAnnouncements()){notice.Receive(new(0,"NOME PRIVADO DO TECNICO","Aviso de teste",DateTimeOffset.UtcNow));var rendered=notice.HistoryText;Check(rendered.Contains("AVISO DA TI")&&rendered.Contains("Aviso de teste")&&!rendered.Contains("NOME PRIVADO"),"aviso global nao exibe nome do tecnico");}
                 using(var previewIdentity=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Técnico de teste"))
                 using(var console=new Technician(previewIdentity))
                 {
                     console.Show();Application.DoEvents();
+                    var flags=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+                    var fixtures=(List<Device>)typeof(Technician).GetField("devices",flags)!.GetValue(console)!;fixtures.Clear();
+                    var presence=(Dictionary<string,DateTimeOffset>)typeof(Technician).GetField("online",flags)!.GetValue(console)!;
+                    for(int i=0;i<3;i++){var d=new Device(Guid.NewGuid().ToString(),"Cliente "+i,"Teste","127.0.0.1",17443,new string('0',64));fixtures.Add(d);if(i<2)presence[d.Id]=DateTimeOffset.UtcNow;}
+                    var tabs=console.Controls.OfType<TabControl>().Single();tabs.SelectedIndex=2;Application.DoEvents();
+                    IEnumerable<Control> Descendants(Control parent)=>parent.Controls.Cast<Control>().SelectMany(c=>new[]{c}.Concat(Descendants(c)));
+                    var targets=(CheckedListBox)typeof(Technician).GetField("noticeTargets",flags)!.GetValue(console)!;
+                    Descendants(console).OfType<Button>().Single(b=>b.Text=="Selecionar todos").PerformClick();Check(targets.CheckedItems.Count==2,"selecionar todos marca somente clientes online");
+                    Descendants(console).OfType<Button>().Single(b=>b.Text=="Limpar seleção").PerformClick();Check(targets.CheckedItems.Count==0,"limpar selecao desmarca todos os destinatarios");
                     using var bitmap=new Bitmap(console.Width,console.Height);console.DrawToBitmap(bitmap,new Rectangle(Point.Empty,bitmap.Size));
                     string qa=Path.Combine(Environment.GetEnvironmentVariable("RUNNER_TEMP")??Path.GetTempPath(),"SDE-Visual-QA");Directory.CreateDirectory(qa);bitmap.Save(Path.Combine(qa,"console.png"));
                     Check(console.Controls.OfType<TabControl>().Single().TabPages.Count==5,"console inclui atualizacoes e abas de suporte");
@@ -122,6 +140,7 @@ static class Tests
         using var otherSession=new RemoteClient(device,identity);
         try{using var response=await otherSession.Request(HttpMethod.Get,"/chat");throw new Exception("chat sem token aceito");}
         catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.Forbidden){Console.WriteLine("OK: chat exige token do atendimento ativo");}
+        try{using var bad=await otherSession.Request(HttpMethod.Post,"/announcement",new AnnouncementRequest(Guid.NewGuid().ToString(),"","nao-e-uma-imagem"));throw new Exception("foto invalida recebida");}catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.BadRequest){Console.WriteLine("OK: agente rejeita foto invalida sem exibir");}
         var notice=new AnnouncementRequest(Guid.NewGuid().ToString(),"Aviso geral de teste");
         using(var response=await otherSession.Request(HttpMethod.Post,"/announcement",notice))Check(response.IsSuccessStatusCode,"aviso global autenticado funciona sem iniciar atendimento");
         using(var duplicate=await otherSession.Request(HttpMethod.Post,"/announcement",notice))
@@ -251,9 +270,27 @@ static class Tests
         try{await NetworkScanner.Scan([IPv4Range.Parse("127.0.0.1/32",true)],[root.Id],first.Public.Id,_=>{},cancellation:stop.Token,port:config.Device.Port);throw new Exception("varredura nao cancelou");}
         catch(OperationCanceledException){Console.WriteLine("OK: varredura pode ser cancelada");}
     }
+    static async Task ConsentLive(string fixture,string configFile)
+    {
+        var config=Json.Read<AgentConfig>(configFile);Check(config.RequireConsent,"agente exige consentimento por padrao");
+        using var identity=TechnicianIdentity.FromPrivate(File.ReadAllBytes(Path.Combine(fixture,"private-test.pk8")),"Técnico de Teste");
+        using var client=new RemoteClient(config.Device,identity,TimeSpan.FromSeconds(45));
+        for(int i=0;i<20;i++){try{using var ready=await client.Request(HttpMethod.Get,"/info");break;}catch{await Task.Delay(300);}}
+        async Task<IntPtr> Prompt(){for(int i=0;i<100;i++){var w=FindWindow(null,"SDE Suporte — autorizar atendimento");if(w!=IntPtr.Zero)return w;await Task.Delay(100);}throw new Exception("Janela de autorizacao nao apareceu.");}
+        void Click(IntPtr window,string name){IntPtr button=IntPtr.Zero;EnumChildWindows(window,(child,_)=>{var value=new StringBuilder(256);GetWindowText(child,value,256);if(value.ToString()==name)button=child;return true;},IntPtr.Zero);Check(button!=IntPtr.Zero,"botao de consentimento disponivel: "+name);SendClick(button,0x00F5,IntPtr.Zero,IntPtr.Zero);}
+        var refusal=client.Start();var dialog=await Prompt();
+        using(var unauthorized=new RemoteClient(config.Device,identity))
+        {try{using var frame=await unauthorized.Request(HttpMethod.Get,"/frame");throw new Exception("imagem obtida antes de consentimento");}catch(HttpRequestException e)when(e.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden){Console.WriteLine("OK: nenhuma imagem antes da autorizacao");}}
+        Click(dialog,"Recusar");try{await refusal;throw new Exception("recusa ignorada");}catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.Forbidden){Console.WriteLine("OK: recusa bloqueia atendimento");}
+        var approval=client.Start();Click(await Prompt(),"Autorizar");await approval;Check(client.Session is not null,"funcionario autoriza atendimento real");await client.Stop();
+        var timeout=client.Start();await Prompt();try{await timeout;throw new Exception("ausencia de resposta liberou acesso");}catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.Forbidden){Console.WriteLine("OK: ausencia de resposta bloqueia acesso sem bypass");}
+        string log=File.ReadAllText(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"SdeSuporte","logs","audit.jsonl"));
+        Check(new[]{"access_requested","consent_declined","consent_approved","consent_timeout","started","technician_stop"}.All(log.Contains),"solicitacoes, respostas e encerramento registrados no log");
+    }
     static async Task Installed(string configFile)
     {
         var config=Json.Read<AgentConfig>(configFile);
+        Check(config.RequireConsent,"instalador ativa confirmacao do funcionario");
         Check(config.Enrollment?.Approval.Permission.TeamWide==true,"instalador cliente ja inclui equipe sem arquivos manuais");
         Check(config.Enrollment!.Approval.Permission.Issuer.Id==TeamAccess.Root.Id,"cliente instalado usa autoridade publica da empresa");
         Device? found=null;for(int i=0;i<15&&found is null;i++){found=await NetworkScanner.Discover(IPAddress.Loopback,config.Device.Port,[TeamAccess.Root.Id],"scanner",CancellationToken.None);if(found is null)await Task.Delay(500);}
