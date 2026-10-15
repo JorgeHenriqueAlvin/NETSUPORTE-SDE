@@ -19,6 +19,14 @@ public record Device(string Id, string Name, string Sector, string Host, int Por
 }
 public record AgentConfig(Device Device, TechnicianKey[] Technicians, bool RequireConsent = true, DeviceEnrollment? Enrollment = null);
 public record RemoteSession(string Id, string TechnicianId, string TechnicianName, DateTimeOffset Started, DateTimeOffset Expires);
+public record RemoteMonitor(string Id,string Name,int X,int Y,int Width,int Height,bool Primary)
+{
+    public override string ToString()=>Name;
+}
+public static class MonitorCoordinates
+{
+    public static Point Offset(Point imagePoint,int offsetX,int offsetY)=>new(checked(imagePoint.X+offsetX),checked(imagePoint.Y+offsetY));
+}
 public record InputCommand(string Kind, int X=0, int Y=0, string Text="", int Key=0, int Delta=0);
 public static class Json
 {

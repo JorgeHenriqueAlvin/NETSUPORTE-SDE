@@ -100,7 +100,7 @@ sealed class Agent:Form
             var tech=verifier.Verify(H("X-Technician"),H("X-Device"),c.Request.HttpMethod,c.Request.RawUrl??"/",body,H("X-Session"),H("X-Time"),H("X-Nonce"),H("X-Signature"),H("X-Team-Credential"));
             if(tech is null){await Reply(c.Response,403,new{error="Técnico não autorizado. Verifique o código da equipe no console."});return;}
             user=tech.Name;var path=c.Request.Url!.AbsolutePath;var method=c.Request.HttpMethod;
-            if(path=="/info" && method=="GET") {await Reply(c.Response,200,new{config.Device.Id,config.Device.Name,config.Device.Sector,version="0.9.0",capabilities=new[]{"chat","announcements"},available=!unavailable&&Native.DesktopAvailable()});return;}
+            if(path=="/info" && method=="GET") {await Reply(c.Response,200,new{config.Device.Id,config.Device.Name,config.Device.Sector,version="0.10.0",capabilities=new[]{"chat","announcements"},available=!unavailable&&Native.DesktopAvailable()});return;}
             if(path=="/announcement"&&method=="POST")
             {
                 var notice=JsonSerializer.Deserialize<AnnouncementRequest>(body,Json.Options);
@@ -161,7 +161,20 @@ sealed class Agent:Form
             {
                 if(capturing){await Reply(c.Response,429,new{error="Captura em andamento."});return;}
                 capturing=true;ownsFrame=true;
-                var bounds=SystemInformation.VirtualScreen;
+                var displays=Screen.AllScreens;
+                string? requested=c.Request.QueryString["monitor"];
+                var selected=requested is null or "all"?null:displays.FirstOrDefault(s=>s.DeviceName==requested)??displays.FirstOrDefault(s=>s.Primary)??displays[0];
+                var desktop=SystemInformation.VirtualScreen;
+                var bounds=selected?.Bounds??desktop;
+                var monitors=displays.Select((s,i)=>new RemoteMonitor(s.DeviceName,$"Monitor {i+1}"+(s.Primary?" • Principal":"")+$" ({s.Bounds.Width} × {s.Bounds.Height})",s.Bounds.X,s.Bounds.Y,s.Bounds.Width,s.Bounds.Height,s.Primary)).ToArray();
+                c.Response.Headers["X-SDE-Monitors"]=Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(monitors,Json.Options));
+                c.Response.Headers["X-SDE-Monitor"]=Uri.EscapeDataString(selected?.DeviceName??"all");
+                c.Response.Headers["X-SDE-Offset-X"]=(bounds.X-desktop.X).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                c.Response.Headers["X-SDE-Offset-Y"]=(bounds.Y-desktop.Y).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                if(selected is not null)
+                {
+                    var area=selected.WorkingArea;Location=new Point(Math.Max(area.Left,area.Right-Width-12),area.Top+12);
+                }
                 using var bmp=new Bitmap(bounds.Width,bounds.Height);using var graphics=Graphics.FromImage(bmp);
                 graphics.CopyFromScreen(bounds.Location,Point.Empty,bounds.Size);
                 using var data=new MemoryStream();

@@ -19,6 +19,10 @@ sealed class Technician:Form
     FullScreenWindow? fullScreen;
     bool pollingChat,chatAvailable;
     long chatCursor;
+    readonly ComboBox monitorPicker=new(){DropDownStyle=ComboBoxStyle.DropDownList,Width=280};
+    string selectedMonitor="primary",monitorSignature="";
+    int frameOffsetX,frameOffsetY;
+    bool updatingMonitors;
     readonly RemoteScreen screen=new(){Dock=DockStyle.Fill,BackColor=Color.FromArgb(15,27,45),SizeMode=PictureBoxSizeMode.Zoom,TabStop=true};
     readonly Label status=new(){Dock=DockStyle.Bottom,Height=32};
     readonly TextBox search=new(){Dock=DockStyle.Top,PlaceholderText="Pesquisar computador, setor ou IP"};
@@ -66,7 +70,10 @@ sealed class Technician:Form
         Add("Encerrar",Disconnect);Add("Verificar conexão",Probe);
         toolbar.Controls.Add(text);Add("Enviar texto",async()=>{await Input(new("text",Text:text.Text));text.Clear();});
         toolbar.Controls.Add(autoFullScreen);Add("Tela cheia (F11)",()=>{ToggleFullScreen();return Task.CompletedTask;});
-        remotePage.Controls.Add(screen);chatPage.Controls.Add(chatPanel);
+        var monitorBar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=52,Padding=new Padding(8)};
+        monitorBar.Controls.Add(new Label{Text="Monitor do cliente",AutoSize=true,Margin=new Padding(0,7,10,0)});monitorBar.Controls.Add(monitorPicker);
+        monitorPicker.SelectedIndexChanged+=(_,_)=>{if(!updatingMonitors&&monitorPicker.SelectedItem is RemoteMonitor m){selectedMonitor=m.Id;screen.Focus();}};
+        remotePage.Controls.Add(screen);remotePage.Controls.Add(monitorBar);chatPage.Controls.Add(chatPanel);
         var deploymentPage=new TabPage("Implantar Clientes");deploymentPage.Controls.Add(new DeploymentPanel());
         tabs.TabPages.AddRange([remotePage,chatPage,noticesPage,deploymentPage,UpdatesPage()]);
         var noticeHeader=new Label{Dock=DockStyle.Top,Height=65,Text="Envie um aviso de texto a todos os clientes online da lista, inclusive fora do filtro.\nO funcionário verá apenas “Aviso da TI”, sem o nome do remetente. Entrega não significa leitura.",Padding=new Padding(8)};
@@ -121,10 +128,10 @@ sealed class Technician:Form
     {
         var page=new TabPage("Atualizações");
         var title=new Label{Dock=DockStyle.Top,Height=65,Text="Seu suporte sempre atualizado",Font=new Font("Segoe UI Semibold",19),Padding=new Padding(12)};
-        var description=new Label{Dock=DockStyle.Top,Height=160,Padding=new Padding(12),Text="Versão instalada: 0.9.0\n\nA atualização automática é habilitada pelo instalador. Novas versões são verificadas diariamente no GitHub e os pacotes passam por verificação de integridade.\n\nAs atualizações são instaladas quando Cliente e Técnico estão fechados, inclusive na próxima inicialização. A máquina precisa de acesso à internet para baixar as versões."};
+        var description=new Label{Dock=DockStyle.Top,Height=160,Padding=new Padding(12),Text="Versão instalada: 0.10.0\n\nA atualização automática é habilitada pelo instalador. Novas versões são verificadas diariamente no GitHub e os pacotes passam por verificação de integridade.\n\nAs atualizações são instaladas quando Cliente e Técnico estão fechados, inclusive na próxima inicialização. A máquina precisa de acesso à internet para baixar as versões."};
         var result=new TextBox{Dock=DockStyle.Fill,Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical};
         var check=new Button{Dock=DockStyle.Top,Height=45,Text="Verificar nova versão"};
-        check.Click+=async(_,_)=>{check.Enabled=false;try{using var http=new HttpClient{Timeout=TimeSpan.FromSeconds(20)};using var data=JsonDocument.Parse(await http.GetStringAsync("https://github.com/JorgeHenriqueAlvin/NETSUPORTE-SDE/releases/latest/download/update.json"));string version=data.RootElement.GetProperty("version").GetString()??"";result.Text=Version.TryParse(version,out var next)&&next>new Version("0.9.0")?$"Versão {version} disponível. O atualizador fará a instalação automaticamente quando os aplicativos estiverem fechados.":"Você está usando a versão mais recente.";}catch(Exception){result.Text="Não foi possível consultar o GitHub. O suporte na rede local continua disponível; o atualizador tentará novamente depois.";}finally{if(!check.IsDisposed)check.Enabled=true;}};
+        check.Click+=async(_,_)=>{check.Enabled=false;try{using var http=new HttpClient{Timeout=TimeSpan.FromSeconds(20)};using var data=JsonDocument.Parse(await http.GetStringAsync("https://github.com/JorgeHenriqueAlvin/NETSUPORTE-SDE/releases/latest/download/update.json"));string version=data.RootElement.GetProperty("version").GetString()??"";result.Text=Version.TryParse(version,out var next)&&next>new Version("0.10.0")?$"Versão {version} disponível. O atualizador fará a instalação automaticamente quando os aplicativos estiverem fechados.":"Você está usando a versão mais recente.";}catch(Exception){result.Text="Não foi possível consultar o GitHub. O suporte na rede local continua disponível; o atualizador tentará novamente depois.";}finally{if(!check.IsDisposed)check.Enabled=true;}};
         page.Controls.Add(result);page.Controls.Add(check);page.Controls.Add(description);page.Controls.Add(title);return page;
     }
     void LoadTeamCredential()
@@ -252,6 +259,7 @@ sealed class Technician:Form
         try
         {
             await Disconnect();if(list.SelectedItem is not Device d)throw new Exception("Selecione um computador na lista. Use Varredura de IP se ele ainda não apareceu.");
+            selectedMonitor="primary";monitorSignature="";monitorPicker.Items.Clear();frameOffsetX=frameOffsetY=0;
             client=new(d,identity,TimeSpan.FromSeconds(8));await client.Start();online[d.Id]=DateTimeOffset.UtcNow;list.Invalidate();status.Text=$"ATENDIMENTO: {d.Name} • {d.Sector} | Técnico: {identity.Public.Name}";
             chatAvailable=true; // Supported by all currently distributed clients; first image takes priority.
             chatCursor=0;chatPanel.ClearHistory();chatPanel.SetAvailable(chatAvailable);
@@ -269,10 +277,29 @@ sealed class Technician:Form
     async Task Frame()
     {
         if(client?.Session is null||loading)return;
-        var active=client;loading=true;
-        try{using var r=await active.Request(HttpMethod.Get,"/frame");using var stream=await r.Content.ReadAsStreamAsync();using var image=Image.FromStream(stream);var old=screen.Image;if(ReferenceEquals(client,active)&&active.Session is not null){screen.Image=new Bitmap(image);old?.Dispose();}}
+        var active=client;var requestedMonitor=selectedMonitor;loading=true;
+        try{using var r=await active.Request(HttpMethod.Get,"/frame?monitor="+Uri.EscapeDataString(requestedMonitor));using var stream=await r.Content.ReadAsStreamAsync();using var image=Image.FromStream(stream);var old=screen.Image;if(ReferenceEquals(client,active)&&active.Session is not null){screen.Image=new Bitmap(image);old?.Dispose();
+                frameOffsetX=HeaderInt(r,"X-SDE-Offset-X");frameOffsetY=HeaderInt(r,"X-SDE-Offset-Y");
+                RefreshMonitors(r,requestedMonitor);}}
         catch(Exception)when(!ReferenceEquals(client,active)||active.Session is null){}
         finally{loading=false;}
+    }
+    static int HeaderInt(HttpResponseMessage response,string name)=>response.Headers.TryGetValues(name,out var values)&&int.TryParse(values.FirstOrDefault(),out var number)?number:0;
+    void RefreshMonitors(HttpResponseMessage response,string requested)
+    {
+        if(selectedMonitor!=requested||!response.Headers.TryGetValues("X-SDE-Monitors",out var values))return;
+        string signature=values.First();
+        string current=response.Headers.TryGetValues("X-SDE-Monitor",out var ids)?Uri.UnescapeDataString(ids.First()):"all";
+        if(signature==monitorSignature&&current==selectedMonitor)return;
+        var monitors=JsonSerializer.Deserialize<RemoteMonitor[]>(Convert.FromBase64String(signature),Json.Options)??[];
+        updatingMonitors=true;
+        try
+        {
+            monitorPicker.Items.Clear();monitorPicker.Items.Add(new RemoteMonitor("all","Todos os monitores",0,0,0,0,false));
+            monitorPicker.Items.AddRange(monitors.Cast<object>().ToArray());
+            monitorPicker.SelectedItem=monitorPicker.Items.Cast<RemoteMonitor>().FirstOrDefault(m=>m.Id==current);
+            selectedMonitor=current;monitorSignature=signature;
+        }finally{updatingMonitors=false;}
     }
     async Task Input(InputCommand command)
     {
@@ -285,14 +312,14 @@ sealed class Technician:Form
     {
         if(fullScreen is not null){ExitFullScreen();return;}
         if(client?.Session is null){MessageBox.Show("Conecte a uma máquina antes de abrir a tela cheia.");return;}
-        fullScreen=new FullScreenWindow(screen,ExitFullScreen,()=>{ExitFullScreen();tabs.SelectedTab=chatPage;},()=>Safe(Disconnect));
+        fullScreen=new FullScreenWindow(screen,ExitFullScreen,()=>{ExitFullScreen();tabs.SelectedTab=chatPage;},()=>Safe(Disconnect),monitorPicker);
         fullScreen.FormClosing+=(_,e)=>{e.Cancel=true;ExitFullScreen();};
         fullScreen.Show(this);screen.Focus();
     }
     void ExitFullScreen()
     {
         if(fullScreen is null)return;
-        var previous=fullScreen;fullScreen=null;remotePage.Controls.Add(screen);previous.Dispose();
+        var previous=fullScreen;fullScreen=null;remotePage.Controls.Add(screen);var bar=remotePage.Controls.OfType<FlowLayoutPanel>().Single();bar.Controls.Add(monitorPicker);previous.Dispose();
         tabs.SelectedTab=remotePage;screen.Focus();
     }
     async Task SendChat(string value)
@@ -352,8 +379,8 @@ sealed class Technician:Form
         if(screen.Image is not Image image||client?.Session is null)return null;
         double scale=Math.Min((double)screen.ClientSize.Width/image.Width,(double)screen.ClientSize.Height/image.Height);
         int px=(int)((x-(screen.ClientSize.Width-image.Width*scale)/2)/scale),py=(int)((y-(screen.ClientSize.Height-image.Height*scale)/2)/scale);
-        if(clamp)return new Point(Math.Clamp(px,0,image.Width-1),Math.Clamp(py,0,image.Height-1));
-        return px>=0&&py>=0&&px<image.Width&&py<image.Height?new Point(px,py):null;
+        if(clamp)return MonitorCoordinates.Offset(new Point(Math.Clamp(px,0,image.Width-1),Math.Clamp(py,0,image.Height-1)),frameOffsetX,frameOffsetY);
+        return px>=0&&py>=0&&px<image.Width&&py<image.Height?MonitorCoordinates.Offset(new Point(px,py),frameOffsetX,frameOffsetY):null;
     }
 }
 sealed class RemoteScreen:PictureBox

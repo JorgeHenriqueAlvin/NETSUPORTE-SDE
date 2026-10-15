@@ -54,6 +54,8 @@ static class Tests
     }
     static void MessagingTests()
     {
+        Check(MonitorCoordinates.Offset(new Point(50,60),1920,200)==new Point(1970,260),"entrada do monitor selecionado corresponde ao desktop virtual");
+        Check(MonitorCoordinates.Offset(new Point(0,0),0,0)==Point.Empty,"monitor a esquerda do principal preserva origem virtual");
         var history=new MessageHistory();
         for(int i=0;i<205;i++)history.Add("Funcionário","Mensagem "+i);
         Check(history.After(0).Messages.Length==200&&history.After(204).Messages.Single().Sequence==205,"historico limitado preserva sequencia e cursor");
@@ -82,7 +84,7 @@ static class Tests
                 using(var previewIdentity=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Técnico de teste"))
                 using(var console=new Technician(previewIdentity))
                 {
-                    console.CreateControl();
+                    console.Show();Application.DoEvents();
                     using var bitmap=new Bitmap(console.Width,console.Height);console.DrawToBitmap(bitmap,new Rectangle(Point.Empty,bitmap.Size));
                     string qa=Path.Combine(Environment.GetEnvironmentVariable("RUNNER_TEMP")??Path.GetTempPath(),"SDE-Visual-QA");Directory.CreateDirectory(qa);bitmap.Save(Path.Combine(qa,"console.png"));
                     Check(console.Controls.OfType<TabControl>().Single().TabPages.Count==5,"console inclui atualizacoes e abas de suporte");
@@ -338,6 +340,15 @@ static class Tests
             using(var frame=await client.Request(HttpMethod.Get,"/frame"))
             {var bytes=await frame.Content.ReadAsByteArrayAsync();Check(bytes.Length>1000&&bytes[0]==0xff&&bytes[1]==0xd8,"captura real da tela produz JPEG");}
             Console.WriteLine("MEDICAO: captura JPEG local em "+captureWatch.ElapsedMilliseconds+" ms.");
+            using(var monitorFrame=await client.Request(HttpMethod.Get,"/frame?monitor=primary"))
+            {
+                var descriptors=JsonSerializer.Deserialize<RemoteMonitor[]>(Convert.FromBase64String(monitorFrame.Headers.GetValues("X-SDE-Monitors").Single()),Json.Options)!;
+                var chosen=descriptors.Single(m=>m.Id==Uri.UnescapeDataString(monitorFrame.Headers.GetValues("X-SDE-Monitor").Single()));
+                using var imageStream=await monitorFrame.Content.ReadAsStreamAsync();using var picture=Image.FromStream(imageStream);
+                Check(picture.Width==chosen.Width&&picture.Height==chosen.Height,"captura selecionada corresponde a resolucao do monitor detectado");
+                using var removed=await client.Request(HttpMethod.Get,"/frame?monitor=monitor-removido");
+                Check(removed.Headers.Contains("X-SDE-Monitors"),"monitor removido retorna automaticamente ao principal");
+            }
             form.Invoke(()=>{form.Activate();textbox.Focus();SetForegroundWindow(form.Handle);});await Task.Delay(500);
             IntPtr handle=(IntPtr)form.Invoke(()=>form.Handle);
             Check(GetForegroundWindow()==handle,"alvo exclusivo do teste em primeiro plano");

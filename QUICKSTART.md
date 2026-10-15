@@ -64,3 +64,7 @@ Avisos globais exibem somente Aviso da TI. O nome do técnico continua no atendi
 
 ### Atualizações automáticas
 Após instalar esta versão uma vez, uma tarefa Windows (SYSTEM) consulta o pacote oficial do GitHub a cada 24 horas e verifica a integridade SHA256 antes de instalar. A verificação da instalação pendente acontece a cada hora e ao iniciar o Windows. As duas aplicações precisam estar fechadas; o agente normalmente fecha ao sair do Windows. Não interrompe atendimentos. A instalação mantém a identidade da máquina e a autorização do técnico. Exige acesso HTTPS ao GitHub e seus servidores de arquivos; sem internet, o aplicativo continua funcionando na rede local e tenta atualizar depois. O manifesto e os hashes são obtidos do repositório oficial por HTTPS; os executáveis ainda não têm assinatura Authenticode. Logs: pasta UpdateCache ao lado de Agent/Technician.
+
+
+## Versão 0.10.0 — vários monitores
+Ao conectar, o console detecta os monitores do funcionário e abre o principal. Use Monitor do cliente para alternar para Monitor 1, Monitor 2 ou Todos os monitores, inclusive em tela cheia. A lista acompanha monitores conectados ou removidos durante o atendimento. Se o monitor selecionado for removido, volta ao principal. O aviso com o nome do técnico aparece no monitor selecionado. Em Todos os monitores, o aviso permanece no último monitor selecionado. Instale a nova versão de Cliente e Técnico para habilitar a função; a captura de todos os monitores continua compatível com consoles anteriores.
