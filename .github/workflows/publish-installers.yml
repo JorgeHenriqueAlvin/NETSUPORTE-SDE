@@ -1,0 +1,70 @@
+name: Publicar instaladores aprovados
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/publish-installers.yml'
+  workflow_run:
+    workflows: ['Compilar SDE Suporte para Windows']
+    types: [completed]
+permissions:
+  actions: read
+  contents: write
+concurrency:
+  group: publicar-instaladores
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TRIGGER_RUN: ${{ github.event.workflow_run.id }}
+      RELEASE_TAG: v0.6.0
+    steps:
+      - name: Selecionar compilacao Windows aprovada e baixar os instaladores
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "$TRIGGER_RUN" ]]; then
+            run_id="$TRIGGER_RUN"
+          else
+            run_id=$(gh api "repos/$GH_REPO/actions/workflows/windows-build.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].id')
+          fi
+          [[ "$run_id" =~ ^[0-9]+$ ]]
+          conclusion=$(gh api "repos/$GH_REPO/actions/runs/$run_id" --jq '.conclusion')
+          [[ "$conclusion" == 'success' ]]
+          build_sha=$(gh api "repos/$GH_REPO/actions/runs/$run_id" --jq '.head_sha')
+          echo "BUILD_SHA=$build_sha" >> "$GITHUB_ENV"
+          gh run download "$run_id" --repo "$GH_REPO" --name SDE-Suporte-Instaladores-0.6 --dir package
+          test -s package/release/SDE-Suporte-Cliente-Instalar.exe
+          test -s package/release/SDE-Suporte-Tecnico-Instalar.exe
+      - name: Publicar arquivos com download direto
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > notes.md <<'NOTES'
+          Dois instaladores Windows x64, sem dependência de domínio:
+
+          - **Cliente:** instale nos computadores dos funcionários. A configuração é automática.
+          - **Técnico:** instale nos computadores da TI. Na primeira abertura, informe o nome e o código privado da equipe, entregue separadamente.
+
+          O console encontra os agentes automaticamente e permite varredura por rede ou faixa de IP. Novos técnicos da mesma equipe não exigem reinstalação dos clientes. Computadores com agente 0.5 ou anterior precisam receber esta versão uma vez.
+
+          Testes Windows aprovados: descoberta UDP/HTTPS, seis identidades de técnico no mesmo agente, captura e entrada reais, instalação/remoção dos dois aplicativos e atualização preservando a identidade do cliente.
+
+          O funcionário precisa estar conectado e com o Windows desbloqueado. Entre VLANs, permita TCP 7443. Consulte QUICKSTART.md para a faixa de IP e os demais detalhes.
+
+          O código privado da equipe não acompanha os instaladores nem está publicado neste repositório.
+          NOTES
+          if ! gh release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --repo "$GH_REPO" --target "$BUILD_SHA" --title 'SDE Suporte 0.6 — Técnico e Cliente' --notes-file notes.md
+          else
+            tag_sha=$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')
+            if [[ "$tag_sha" != "$BUILD_SHA" ]]; then
+              echo 'A versao publicada pertence a outra compilacao. Incremente a versao antes de publicar.' >&2
+              exit 1
+            fi
+          fi
+          gh release upload "$RELEASE_TAG" --repo "$GH_REPO" --clobber package/release/SDE-Suporte-Cliente-Instalar.exe package/release/SDE-Suporte-Tecnico-Instalar.exe package/QUICKSTART.md
