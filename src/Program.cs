@@ -21,22 +21,55 @@ static class Program
                 }catch(Exception e){File.WriteAllText(Path.Combine(AppContext.BaseDirectory,"setup-error.txt"),e.Message);Environment.ExitCode=1;}
                 return;
             }
+            WaitForStartupUpdate();
             using var single=new Mutex(true,@"Local\SDE-Suporte-Agent",out var first);
             if(!first)return;
             var path=Path.Combine(AppContext.BaseDirectory,"agent.json");
             Application.Run(File.Exists(path)?new Agent(path):new MissingSetup());
 #else
-            if(args.Length==2&&args[0]=="--from-setup")
+            var fromSetup=args.Length==2&&args[0]=="--from-setup";
+            if(fromSetup)
             {
                 var grant=TechnicianSetup.Read(args[1],TeamAccess.Root);
                 if(grant is not null)TechnicianProfiles.Authorize(TechnicianProfiles.DefaultDirectory,grant,TeamAccess.Root);
             }
+            if(!fromSetup)WaitForStartupUpdate();
             Application.Run(new Technician());
 #endif
         }
         catch(Exception e){
             try{var logs=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"SdeSuporte","logs");Directory.CreateDirectory(logs);File.WriteAllText(Path.Combine(logs,"startup-error.txt"),DateTimeOffset.Now+"\n"+e);}catch{}
             MessageBox.Show("Não foi possível iniciar.\n"+e.Message,"SDE Suporte",MessageBoxButtons.OK,MessageBoxIcon.Error);}
+    }
+
+    static void WaitForStartupUpdate()
+    {
+        try
+        {
+            // O atualizador e disparado pelo Windows no boot como SYSTEM. Durante
+            // os primeiros minutos damos alguns segundos para essa tarefa criar o
+            // lock e, se ela estiver ativa, aguardamos sua verificacao. O limite
+            // evita que uma rede lenta impeça o usuario de abrir o aplicativo.
+            if(Environment.TickCount64>TimeSpan.FromMinutes(10).TotalMilliseconds)return;
+            var root=Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,".."));
+            var lockFile=Path.Combine(root,"UpdateCache","update.lock");
+            var discovery=Stopwatch.StartNew();
+            while(discovery.Elapsed<TimeSpan.FromSeconds(5)&&!FreshUpdateLock(lockFile))Thread.Sleep(250);
+            if(!FreshUpdateLock(lockFile))return;
+            var wait=Stopwatch.StartNew();
+            while(wait.Elapsed<TimeSpan.FromSeconds(90)&&FreshUpdateLock(lockFile))Thread.Sleep(500);
+        }
+        catch
+        {
+            // Falha ao observar o atualizador nunca deve bloquear o suporte.
+        }
+    }
+
+    static bool FreshUpdateLock(string path)
+    {
+        if(!File.Exists(path))return false;
+        try{return DateTime.UtcNow-File.GetLastWriteTimeUtc(path)<TimeSpan.FromMinutes(10);}
+        catch{return false;}
     }
 }
 sealed class MissingSetup:Form
