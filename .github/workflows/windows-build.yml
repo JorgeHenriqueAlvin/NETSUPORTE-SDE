@@ -84,11 +84,13 @@ jobs:
           if ($uninstall.ExitCode -ne 0) { throw "Desinstalacao falhou: $($uninstall.ExitCode)" }
           if (Test-Path "$target\Technician\SDE-Suporte-Tecnico.exe") { throw 'Console nao removido.' }
       - name: Testar versao Cliente configurada automaticamente e atualizacao
+        timeout-minutes: 3
         shell: pwsh
         run: |
           $setup = (Resolve-Path release/SDE-Suporte-Cliente-Instalar.exe).Path
           $target = Join-Path $env:RUNNER_TEMP 'SDE-Cliente-Instalado'
           $setupLog = Join-Path $env:RUNNER_TEMP 'SDE-Cliente-Setup.log'
+          Write-Host "CLIENTE: instalacao inicial $(Get-Date -Format o)"
           $install = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$target","/LOG=$setupLog") -PassThru -Wait
           if ($install.ExitCode -ne 0 -or -not (Test-Path "$target\Agent\agent.json")) {
             Get-Content $setupLog -ErrorAction SilentlyContinue | Select-Object -Last 100
@@ -101,13 +103,16 @@ jobs:
           if (-not $original.enrollment.approval.permission.teamWide) { throw 'Cliente nao foi autorizado automaticamente.' }
           $startup = (Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name SdeSuporte).SdeSuporte
           if ($startup -notlike "*$target*") { throw 'Inicio automatico ausente.' }
+          Write-Host "CLIENTE: iniciar agente $(Get-Date -Format o)"
           $agent = Start-Process "$target\Agent\SDE-Suporte-Cliente.exe" -PassThru
           try {
+            Write-Host "CLIENTE: validar descoberta $(Get-Date -Format o)"
             dotnet run --project tests/SdeSuporte.Tests.csproj -c Release -- installed $configFile
             if ($LASTEXITCODE -ne 0) { throw 'Agente instalado nao respondeu a varredura IP.' }
             $legacy = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SDE-Suporte-Cliente-LAN'
             New-Item $legacy -Force | Out-Null
             New-ItemProperty $legacy -Name InstallLocation -Value "$target\Agent" -PropertyType String -Force | Out-Null
+            Write-Host "CLIENTE: atualizar agente aberto $(Get-Date -Format o)"
             $upgrade = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$target") -PassThru -Wait
             if ($upgrade.ExitCode -ne 0) { throw 'Atualizacao sobre agente em execucao falhou.' }
             $updated = Get-Content $configFile -Raw | ConvertFrom-Json
@@ -119,8 +124,16 @@ jobs:
             $uninstall = Start-Process "$target\unins000.exe" -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
             if ($uninstall.ExitCode -ne 0) { throw 'Falha ao desinstalar cliente.' }
           }
+          Write-Host "CLIENTE: encerrado $(Get-Date -Format o)"
           if (Test-Path "$target\Agent\agent.json") { throw 'Configuracao do cliente nao removida.' }
           if (Get-NetFirewallRule -Name SDE-Suporte-LAN-7443 -ErrorAction SilentlyContinue) { throw 'Regra do agente nao removida.' }
+      - name: Diagnosticar falha de instalacao
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-Process | Where-Object { $_.ProcessName -like '*SDE*' -or $_.MainWindowTitle -like '*SDE*' } | Select-Object Id,ProcessName,MainWindowTitle | Format-Table -AutoSize
+          Get-Content "$env:RUNNER_TEMP/SDE-Cliente-Setup.log" -ErrorAction SilentlyContinue | Select-Object -Last 100
+          Get-Content "$env:RUNNER_TEMP/SDE-Cliente-Instalado/scripts/agent-setup.log" -ErrorAction SilentlyContinue | Select-Object -Last 100
       - name: Validar instalacao administrativa usada pela implantacao remota
         shell: pwsh
         run: |
