@@ -30,6 +30,7 @@ public sealed class MessagePanel:UserControl
     readonly TextBox input=new(){Dock=DockStyle.Fill,Multiline=true,MaxLength=2000,ScrollBars=ScrollBars.Vertical};
     readonly Button send=new(){Dock=DockStyle.Right,Width=110,Text="Enviar"};
     readonly Label heading=new(){Dock=DockStyle.Top,Height=45,Padding=new Padding(8),Text="Chat do atendimento"};
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public Func<string,Task>? Send {get;set;}
     public MessagePanel()
     {
