@@ -25,9 +25,11 @@ public record RemoteMonitor(string Id,string Name,int X,int Y,int Width,int Heig
 }
 public static class MonitorCoordinates
 {
+    public static RemoteMonitor[] Inventory(Screen[] displays)=>displays.Select((s,i)=>new RemoteMonitor(s.DeviceName,$"Monitor {i+1}"+(s.Primary?" • Principal":"")+$" ({s.Bounds.Width} × {s.Bounds.Height})",s.Bounds.X,s.Bounds.Y,s.Bounds.Width,s.Bounds.Height,s.Primary)).ToArray();
+    public static string Layout(Screen[] displays)=>Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(Inventory(displays),Json.Options));
     public static Point Offset(Point imagePoint,int offsetX,int offsetY)=>new(checked(imagePoint.X+offsetX),checked(imagePoint.Y+offsetY));
 }
-public record InputCommand(string Kind, int X=0, int Y=0, string Text="", int Key=0, int Delta=0);
+public record InputCommand(string Kind, int X=0, int Y=0, string Text="", int Key=0, int Delta=0,string Layout="");
 public static class Json
 {
     public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web) { WriteIndented=true };

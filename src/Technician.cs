@@ -20,7 +20,7 @@ sealed class Technician:Form
     bool pollingChat,chatAvailable;
     long chatCursor;
     readonly ComboBox monitorPicker=new(){DropDownStyle=ComboBoxStyle.DropDownList,Width=280};
-    string selectedMonitor="primary",monitorSignature="";
+    string selectedMonitor="primary",monitorSignature="",frameLayout="";
     int frameOffsetX,frameOffsetY;
     bool updatingMonitors;
     readonly RemoteScreen screen=new(){Dock=DockStyle.Fill,BackColor=Color.FromArgb(15,27,45),SizeMode=PictureBoxSizeMode.Zoom,TabStop=true};
@@ -259,7 +259,7 @@ sealed class Technician:Form
         try
         {
             await Disconnect();if(list.SelectedItem is not Device d)throw new Exception("Selecione um computador na lista. Use Varredura de IP se ele ainda não apareceu.");
-            selectedMonitor="primary";monitorSignature="";monitorPicker.Items.Clear();frameOffsetX=frameOffsetY=0;
+            selectedMonitor="primary";monitorSignature="";monitorPicker.Items.Clear();monitorPicker.Enabled=true;frameLayout="";frameOffsetX=frameOffsetY=0;
             client=new(d,identity,TimeSpan.FromSeconds(8));await client.Start();online[d.Id]=DateTimeOffset.UtcNow;list.Invalidate();status.Text=$"ATENDIMENTO: {d.Name} • {d.Sector} | Técnico: {identity.Public.Name}";
             chatAvailable=true; // Supported by all currently distributed clients; first image takes priority.
             chatCursor=0;chatPanel.ClearHistory();chatPanel.SetAvailable(chatAvailable);
@@ -280,6 +280,7 @@ sealed class Technician:Form
         var active=client;var requestedMonitor=selectedMonitor;loading=true;
         try{using var r=await active.Request(HttpMethod.Get,"/frame?monitor="+Uri.EscapeDataString(requestedMonitor));using var stream=await r.Content.ReadAsStreamAsync();using var image=Image.FromStream(stream);var old=screen.Image;if(ReferenceEquals(client,active)&&active.Session is not null){screen.Image=new Bitmap(image);old?.Dispose();
                 frameOffsetX=HeaderInt(r,"X-SDE-Offset-X");frameOffsetY=HeaderInt(r,"X-SDE-Offset-Y");
+                frameLayout=r.Headers.TryGetValues("X-SDE-Monitors",out var layout)?layout.First():"";
                 RefreshMonitors(r,requestedMonitor);}}
         catch(Exception)when(!ReferenceEquals(client,active)||active.Session is null){}
         finally{loading=false;}
@@ -304,7 +305,7 @@ sealed class Technician:Form
     async Task Input(InputCommand command)
     {
         if(client?.Session is null)return;
-        await operations.WaitAsync();try{if(client?.Session is not null){using var r=await client.Request(HttpMethod.Post,"/input",command);}}finally{operations.Release();}
+        await operations.WaitAsync();try{if(client?.Session is not null){using var r=await client.Request(HttpMethod.Post,"/input",command with{Layout=frameLayout});}}finally{operations.Release();}
     }
     static bool HasCapability(JsonDocument info,string name)=>info.RootElement.TryGetProperty("capabilities",out var capabilities)
         &&capabilities.ValueKind==JsonValueKind.Array&&capabilities.EnumerateArray().Any(c=>c.GetString()==name);
@@ -319,7 +320,7 @@ sealed class Technician:Form
     void ExitFullScreen()
     {
         if(fullScreen is null)return;
-        var previous=fullScreen;fullScreen=null;remotePage.Controls.Add(screen);var bar=remotePage.Controls.OfType<FlowLayoutPanel>().Single();bar.Controls.Add(monitorPicker);previous.Dispose();
+        var previous=fullScreen;fullScreen=null;remotePage.Controls.Add(screen);remotePage.Controls.SetChildIndex(screen,0);var bar=remotePage.Controls.OfType<FlowLayoutPanel>().Single();bar.Controls.Add(monitorPicker);previous.Dispose();
         tabs.SelectedTab=remotePage;screen.Focus();
     }
     async Task SendChat(string value)

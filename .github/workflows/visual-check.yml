@@ -20,7 +20,7 @@ jobs:
           # disposable UI fixture only in this interactive visual review job.
           $path = 'tests/Program.cs'
           $source = [IO.File]::ReadAllText($path)
-          if (-not $source.Contains('console.CreateControl();')) { throw 'Ponto de captura visual ausente.' }
+          if (-not $source.Contains('console.CreateControl();') -and -not $source.Contains('console.Show();Application.DoEvents();')) { throw 'Ponto de captura visual ausente.' }
           [IO.File]::WriteAllText($path,$source.Replace('console.CreateControl();','console.Show();Application.DoEvents();'))
           dotnet run --project tests/SdeSuporte.Tests.csproj -c Release -- protocol
           if ($LASTEXITCODE -ne 0) { throw 'Falha ao renderizar a interface.' }

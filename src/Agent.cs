@@ -166,8 +166,7 @@ sealed class Agent:Form
                 var selected=requested is null or "all"?null:displays.FirstOrDefault(s=>s.DeviceName==requested)??displays.FirstOrDefault(s=>s.Primary)??displays[0];
                 var desktop=SystemInformation.VirtualScreen;
                 var bounds=selected?.Bounds??desktop;
-                var monitors=displays.Select((s,i)=>new RemoteMonitor(s.DeviceName,$"Monitor {i+1}"+(s.Primary?" • Principal":"")+$" ({s.Bounds.Width} × {s.Bounds.Height})",s.Bounds.X,s.Bounds.Y,s.Bounds.Width,s.Bounds.Height,s.Primary)).ToArray();
-                c.Response.Headers["X-SDE-Monitors"]=Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(monitors,Json.Options));
+                c.Response.Headers["X-SDE-Monitors"]=MonitorCoordinates.Layout(displays);
                 c.Response.Headers["X-SDE-Monitor"]=Uri.EscapeDataString(selected?.DeviceName??"all");
                 c.Response.Headers["X-SDE-Offset-X"]=(bounds.X-desktop.X).ToString(System.Globalization.CultureInfo.InvariantCulture);
                 c.Response.Headers["X-SDE-Offset-Y"]=(bounds.Y-desktop.Y).ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -189,6 +188,8 @@ sealed class Agent:Form
             {
                 var input=JsonSerializer.Deserialize<InputCommand>(body,Json.Options);
                 if(input is null||input.Text is null||input.Text.Length>1000){await Reply(c.Response,400,new{error="Entrada inválida."});return;}
+                if(input.Layout!=""&&input.Layout!=MonitorCoordinates.Layout(Screen.AllScreens))
+                {await Reply(c.Response,409,new{error="Os monitores mudaram. Aguarde a próxima imagem antes de clicar."});return;}
                 Native.Apply(input);
                 if(input.Kind=="keyDown")heldKeys.Add(input.Key);if(input.Kind=="keyUp")heldKeys.Remove(input.Key);
                 if(input.Kind=="down")heldMouse.Add(input.Key);if(input.Kind=="up")heldMouse.Remove(input.Key);

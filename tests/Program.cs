@@ -346,6 +346,8 @@ static class Tests
                 var chosen=descriptors.Single(m=>m.Id==Uri.UnescapeDataString(monitorFrame.Headers.GetValues("X-SDE-Monitor").Single()));
                 using var imageStream=await monitorFrame.Content.ReadAsStreamAsync();using var picture=Image.FromStream(imageStream);
                 Check(picture.Width==chosen.Width&&picture.Height==chosen.Height,"captura selecionada corresponde a resolucao do monitor detectado");
+                try{using var stale=await client.Request(HttpMethod.Post,"/input",new InputCommand("move",Layout:"layout-antigo"));throw new Exception("layout antigo aceito");}
+                catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.Conflict){Console.WriteLine("OK: alteracao dos monitores bloqueia coordenadas de imagem antiga");}
                 using var removed=await client.Request(HttpMethod.Get,"/frame?monitor=monitor-removido");
                 Check(removed.Headers.Contains("X-SDE-Monitors"),"monitor removido retorna automaticamente ao principal");
             }
