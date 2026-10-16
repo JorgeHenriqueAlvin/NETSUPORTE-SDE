@@ -11,7 +11,25 @@ sealed class Agent:Form
     readonly SemaphoreSlim serial=new(1,1);
     static readonly ImageCodecInfo jpeg=ImageCodecInfo.GetImageEncoders().Single(x=>x.FormatID==ImageFormat.Jpeg.Guid);
     readonly Label status=new(){Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleCenter};
-    readonly NotifyIcon tray=new(){Icon=SystemIcons.Information,Visible=true,Text="SDE Suporte — disponível"};
+    readonly Icon idleIcon=BuildIcon(Color.FromArgb(90,100,110),Color.White,"SDE");
+    readonly Icon activeIcon=BuildIcon(Color.FromArgb(34,139,70),Color.White,"ON");
+    readonly NotifyIcon tray=new(){Visible=true,Text="SDE Suporte — disponível"};
+    static Icon BuildIcon(Color back,Color fore,string label)
+    {
+        using var bmp=new Bitmap(32,32);
+        using(var g=Graphics.FromImage(bmp))
+        {
+            g.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.TextRenderingHint=System.Drawing.Text.TextRenderingHint.AntiAlias;
+            using var brush=new SolidBrush(back);g.FillEllipse(brush,0,0,31,31);
+            using var pen=new Pen(Color.FromArgb(220,fore),2);g.DrawEllipse(pen,1,1,29,29);
+            using var font=new Font("Segoe UI",10,FontStyle.Bold,GraphicsUnit.Pixel);
+            using var textBrush=new SolidBrush(fore);
+            var size=g.MeasureString(label,font);
+            g.DrawString(label,font,textBrush,(32-size.Width)/2,(32-size.Height)/2);
+        }
+        return Icon.FromHandle(bmp.GetHicon());
+    }
     readonly System.Windows.Forms.Timer clock=new(){Interval=1000};
     readonly string log;
     AgentDiscovery? discovery;
@@ -41,12 +59,12 @@ sealed class Agent:Form
         var menu=new ContextMenuStrip();
         menu.Items.Add("Mensagens do atendimento",null,(_,_)=>{if(chat is not null){chat.Show();chat.Activate();}});
         menu.Items.Add("Avisos da TI",null,(_,_)=>{if(announcements is not null){announcements.Show();announcements.Activate();}});
-        tray.ContextMenuStrip=menu;
+        tray.Icon=idleIcon;tray.ContextMenuStrip=menu;
         tray.DoubleClick+=(_,_)=>{if(chat is not null){chat.Show();chat.Activate();}};
         Shown+=(_,_)=>{Hide();_=Listen();};
         clock.Tick+=(_,_)=>{if(session is not null && (session.Expires<=DateTimeOffset.UtcNow||DateTimeOffset.UtcNow-activity>TimeSpan.FromSeconds(20)))End("expired_or_disconnected");};clock.Start();
         Microsoft.Win32.SystemEvents.SessionSwitch+=SessionChanged;
-        FormClosed+=(_,_)=>{End("agent_closed");Microsoft.Win32.SystemEvents.SessionSwitch-=SessionChanged;listener.Close();discovery?.Dispose();chat?.Dispose();announcements?.Dispose();menu.Dispose();tray.Dispose();clock.Dispose();};
+        FormClosed+=(_,_)=>{End("agent_closed");Microsoft.Win32.SystemEvents.SessionSwitch-=SessionChanged;listener.Close();discovery?.Dispose();chat?.Dispose();announcements?.Dispose();menu.Dispose();tray.Dispose();idleIcon.Dispose();activeIcon.Dispose();clock.Dispose();};
     }
     void SessionChanged(object sender,Microsoft.Win32.SessionSwitchEventArgs e)
     {
@@ -67,7 +85,7 @@ sealed class Agent:Form
             try{Audit(reason,previous.TechnicianName);}catch{}
         }
         chat?.Dispose();chat=null;chatHistory=new();
-        Hide();tray.Text="SDE Suporte — disponível";
+        Hide();tray.Icon=idleIcon;tray.Text="SDE Suporte — disponível";
     }
     async Task Listen()
     {
@@ -153,8 +171,10 @@ sealed class Agent:Form
                     var message=chatHistory.Add(Environment.UserName,value);Audit("chat_employee",active.TechnicianName);
                     chat.Receive(message,false);return Task.CompletedTask;
                 };
-                status.Text=$"ATENDIMENTO REMOTO EM ANDAMENTO\nTécnico: {active.TechnicianName}\nInício: {active.Started.ToLocalTime():HH:mm:ss} • {config.Device.Sector}";Show();
-                tray.Text="SDE Suporte — atendimento ativo";await Reply(c.Response,200,active);return;
+                status.Text=$"SDE SUPORTE CONECTADO\nTécnico: {active.TechnicianName}\nInício: {active.Started.ToLocalTime():HH:mm:ss} • {config.Device.Sector}";Show();
+                tray.Icon=activeIcon;tray.Text=$"SDE Suporte CONECTADO — {active.TechnicianName}";
+                try{tray.ShowBalloonTip(4000,"SDE Suporte",$"Conexão iniciada por {active.TechnicianName}.",ToolTipIcon.None);}catch{}
+                await Reply(c.Response,200,active);return;
             }
             var current=session;
             if(current is null||current.TechnicianId!=tech.Id||current.Id!=H("X-Session")||current.Expires<=DateTimeOffset.UtcNow)
