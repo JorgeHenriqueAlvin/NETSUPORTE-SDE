@@ -56,6 +56,8 @@ sealed class DeploymentPanel:UserControl
     readonly ComboBox mode=new(){Width=220,DropDownStyle=ComboBoxStyle.DropDownList};
     readonly Label status=new(){Dock=DockStyle.Bottom,Height=32,Text="Abra esta aba para procurar máquinas, mesmo sem o Cliente instalado."};
     readonly Button install=new(){Text="Instalar Cliente nas selecionadas",AutoSize=true};
+    readonly Button preAuth=new(){Text="Marcar como pré-autorizadas",AutoSize=true};
+    readonly Button unAuth=new(){Text="Exigir confirmação",AutoSize=true};
     CancellationTokenSource? scan;
     bool started,deploying;
     public DeploymentPanel()
@@ -68,7 +70,7 @@ sealed class DeploymentPanel:UserControl
         var stop=new Button{Text="Parar busca",AutoSize=true};stop.Click+=(_,_)=>scan?.Cancel();
         var select=new Button{Text="Selecionar compatíveis",AutoSize=true};select.Click+=(_,_)=>{foreach(DataGridViewRow row in grid.Rows){var h=(NetworkHost)row.Tag!;row.Cells[0].Value=mode.SelectedIndex switch{0=>h.WinRmHttps,1=>h.WinRmKerberos,_=>h.Smb};}};
         mode.Items.AddRange(["HTTPS (sem exigir domínio)","Domínio (Kerberos)","SMB + Agendador (sem WinRM)"]);mode.SelectedIndex=2;
-        bar.Controls.AddRange([networks,find,stop,mode,select,install]);
+        bar.Controls.AddRange([networks,find,stop,mode,select,install,preAuth,unAuth]);
         grid.Columns.Add(new DataGridViewCheckBoxColumn{Name="Selecionar",FillWeight=35});
         grid.Columns.Add(new DataGridViewTextBoxColumn{Name="IP",ReadOnly=true,FillWeight=65});
         grid.Columns.Add(new DataGridViewTextBoxColumn{Name="Nome para autenticar",FillWeight=110});
@@ -76,6 +78,8 @@ sealed class DeploymentPanel:UserControl
         grid.Columns.Add(new DataGridViewTextBoxColumn{Name="Resultado",ReadOnly=true,FillWeight=160});
         grid.CurrentCellDirtyStateChanged+=(_,_)=>{if(grid.IsCurrentCellDirty)grid.CommitEdit(DataGridViewDataErrorContexts.Commit);};
         install.Click+=async(_,_)=>await Deploy();
+        preAuth.Click+=async(_,_)=>await ApplyPolicy("PreAutorizado");
+        unAuth.Click+=async(_,_)=>await ApplyPolicy("Confirmacao");
         Controls.Add(grid);Controls.Add(bar);Controls.Add(help);Controls.Add(status);
         Enter+=async(_,_)=>{if(!started){started=true;await Scan();}};
         Disposed+=(_,_)=>scan?.Cancel();
@@ -143,5 +147,57 @@ sealed class DeploymentPanel:UserControl
             status.Text=$"Implantação concluída: {successful}/{targets.Length} instaladas. Atualize a lista de agentes. Relatório: {result}";
         }catch(Exception e){if(!IsDisposed)MessageBox.Show(this,e.Message,"Instalar Cliente");}
         finally{deploying=false;if(!IsDisposed){install.Enabled=true;grid.Enabled=true;mode.Enabled=true;}}
+    }
+    async Task ApplyPolicy(string policyMode)
+    {
+        if(deploying||scan is not null)return;
+        try
+        {
+            grid.EndEdit();var rows=grid.Rows.Cast<DataGridViewRow>().Where(r=>r.Cells[0].Value is true).ToArray();
+            if(rows.Length==0||rows.Length>512)throw new ArgumentException("Selecione entre 1 e 512 máquinas.");
+            var targets=rows.Select(r=>new DeploymentTarget(Convert.ToString(r.Cells[2].Value)?.Trim()??"",Convert.ToString(r.Cells[1].Value)??"")).ToArray();
+            foreach(var t in targets){IPv4Range.Parse(t.Address);if(Uri.CheckHostName(t.Host)==UriHostNameType.Unknown||t.Host.Contains(':'))throw new ArgumentException("Nome/IP inválido.");}
+            string reason="";
+            if(policyMode=="PreAutorizado")
+            {
+                reason=PromptReason();
+                if(reason is null||reason.Trim().Length<10)throw new ArgumentException("Justificativa de ao menos 10 caracteres é obrigatória para pré-autorização.");
+                string names=string.Join("\n",targets.Take(15).Select(t=>$"{t.Host} ({t.Address})"));
+                if(MessageBox.Show(this,$"CONFIRMAR: pré-autorizar {targets.Length} máquina(s)?\nTécnicos da equipe conectarão SEM pedir confirmação ao funcionário.\n\n{names}\n\nMotivo registrado:\n{reason}","Pré-autorização administrativa",MessageBoxButtons.YesNo,MessageBoxIcon.Warning,MessageBoxDefaultButton.Button2)!=DialogResult.Yes)return;
+            }
+            else if(MessageBox.Show(this,$"Reverter {targets.Length} máquina(s) para exigir confirmação do funcionário em cada atendimento?","Reaplicar política padrão",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
+            deploying=true;preAuth.Enabled=false;unAuth.Enabled=false;install.Enabled=false;grid.Enabled=false;
+            string root=Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,".."));
+            string script=Path.Combine(root,"scripts","Deploy-AccessPolicy-SMB.ps1");
+            if(!File.Exists(script))throw new FileNotFoundException("Script de política ausente. Atualize o Técnico.");
+            string folder=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"SdeSuporte","policies",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(folder);
+            string manifest=Path.Combine(folder,"request.json"),result=Path.Combine(folder,"results.json");
+            Json.Write(manifest,new{targets,policyMode,reason,resultPath=result});
+            var start=new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"WindowsPowerShell","v1.0","powershell.exe")){UseShellExecute=true};
+            foreach(string argument in new[]{"-NoProfile","-ExecutionPolicy","Bypass","-File",script,"-ManifestPath",manifest})start.ArgumentList.Add(argument);
+            status.Text=$"Aplicando política {policyMode}. Autentique no PowerShell.";
+            using var process=Process.Start(start)??throw new IOException("Não foi possível iniciar o PowerShell.");await process.WaitForExitAsync();
+            if(IsDisposed)return;
+            if(!File.Exists(result))throw new IOException("A operação não gerou resultado.");
+            var results=Json.Read<DeploymentResult[]>(result);int successful=0;
+            foreach(var row in rows)
+            {
+                string address=Convert.ToString(row.Cells[1].Value)??"";var item=results.FirstOrDefault(r=>r.Address==address);
+                row.Cells[4].Value=item is null?"Não executado":item.State+": "+item.Detail;
+                if(item?.State is "PreAutorizado" or "Confirmacao")successful++;
+            }
+            status.Text=$"Política concluída: {successful}/{targets.Length} aplicadas. Relatório: {result}";
+        }catch(Exception e){if(!IsDisposed)MessageBox.Show(this,e.Message,"Política de acesso");}
+        finally{deploying=false;if(!IsDisposed){preAuth.Enabled=true;unAuth.Enabled=true;install.Enabled=true;grid.Enabled=true;}}
+    }
+    static string PromptReason()
+    {
+        using var dlg=new Form{Text="Justificativa da pré-autorização",Width=520,Height=220,StartPosition=FormStartPosition.CenterParent,FormBorderStyle=FormBorderStyle.FixedDialog,MinimizeBox=false,MaximizeBox=false};
+        var lbl=new Label{Dock=DockStyle.Top,Height=50,Text="Explique por que estas máquinas serão acessadas sem confirmação (mín. 10 caracteres). O motivo é gravado no log de auditoria do agente.",Padding=new Padding(10)};
+        var txt=new TextBox{Dock=DockStyle.Fill,Multiline=true};
+        var ok=new Button{Text="OK",DialogResult=DialogResult.OK,Dock=DockStyle.Bottom,Height=36};
+        var cancel=new Button{Text="Cancelar",DialogResult=DialogResult.Cancel,Dock=DockStyle.Bottom,Height=30};
+        dlg.Controls.Add(txt);dlg.Controls.Add(lbl);dlg.Controls.Add(ok);dlg.Controls.Add(cancel);dlg.AcceptButton=ok;dlg.CancelButton=cancel;
+        return dlg.ShowDialog()==DialogResult.OK?txt.Text:"";
     }
 }
