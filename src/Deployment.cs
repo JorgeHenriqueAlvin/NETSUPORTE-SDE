@@ -58,6 +58,7 @@ sealed class DeploymentPanel:UserControl
     readonly Button install=new(){Text="Instalar Cliente nas selecionadas",AutoSize=true};
     readonly Button preAuth=new(){Text="Marcar como pré-autorizadas",AutoSize=true};
     readonly Button unAuth=new(){Text="Exigir confirmação",AutoSize=true};
+    readonly Button updateNow=new(){Text="Atualizar agora",AutoSize=true};
     CancellationTokenSource? scan;
     bool started,deploying;
     public DeploymentPanel()
@@ -70,7 +71,7 @@ sealed class DeploymentPanel:UserControl
         var stop=new Button{Text="Parar busca",AutoSize=true};stop.Click+=(_,_)=>scan?.Cancel();
         var select=new Button{Text="Selecionar compatíveis",AutoSize=true};select.Click+=(_,_)=>{foreach(DataGridViewRow row in grid.Rows){var h=(NetworkHost)row.Tag!;row.Cells[0].Value=mode.SelectedIndex switch{0=>h.WinRmHttps,1=>h.WinRmKerberos,_=>h.Smb};}};
         mode.Items.AddRange(["HTTPS (sem exigir domínio)","Domínio (Kerberos)","SMB + Agendador (sem WinRM)"]);mode.SelectedIndex=2;
-        bar.Controls.AddRange([networks,find,stop,mode,select,install,preAuth,unAuth]);
+        bar.Controls.AddRange([networks,find,stop,mode,select,install,preAuth,unAuth,updateNow]);
         grid.Columns.Add(new DataGridViewCheckBoxColumn{Name="Selecionar",FillWeight=35});
         grid.Columns.Add(new DataGridViewTextBoxColumn{Name="IP",ReadOnly=true,FillWeight=65});
         grid.Columns.Add(new DataGridViewTextBoxColumn{Name="Nome para autenticar",FillWeight=110});
@@ -80,6 +81,7 @@ sealed class DeploymentPanel:UserControl
         install.Click+=async(_,_)=>await Deploy();
         preAuth.Click+=async(_,_)=>await ApplyPolicy("PreAutorizado");
         unAuth.Click+=async(_,_)=>await ApplyPolicy("Confirmacao");
+        updateNow.Click+=async(_,_)=>await TriggerUpdate();
         Controls.Add(grid);Controls.Add(bar);Controls.Add(help);Controls.Add(status);
         Enter+=async(_,_)=>{if(!started){started=true;await Scan();}};
         Disposed+=(_,_)=>scan?.Cancel();
@@ -189,6 +191,40 @@ sealed class DeploymentPanel:UserControl
             status.Text=$"Política concluída: {successful}/{targets.Length} aplicadas. Relatório: {result}";
         }catch(Exception e){if(!IsDisposed)MessageBox.Show(this,e.Message,"Política de acesso");}
         finally{deploying=false;if(!IsDisposed){preAuth.Enabled=true;unAuth.Enabled=true;install.Enabled=true;grid.Enabled=true;}}
+    }
+    async Task TriggerUpdate()
+    {
+        if(deploying||scan is not null)return;
+        try
+        {
+            grid.EndEdit();var rows=grid.Rows.Cast<DataGridViewRow>().Where(r=>r.Cells[0].Value is true).ToArray();
+            if(rows.Length==0||rows.Length>512)throw new ArgumentException("Selecione entre 1 e 512 máquinas.");
+            var targets=rows.Select(r=>new DeploymentTarget(Convert.ToString(r.Cells[2].Value)?.Trim()??"",Convert.ToString(r.Cells[1].Value)??"")).ToArray();
+            foreach(var t in targets){IPv4Range.Parse(t.Address);if(Uri.CheckHostName(t.Host)==UriHostNameType.Unknown||t.Host.Contains(':'))throw new ArgumentException("Nome/IP inválido.");}
+            if(MessageBox.Show(this,$"Disparar atualização imediata em {targets.Length} máquina(s)?\nA tarefa SDE-Suporte-Atualizacao baixa a última Release do GitHub e instala quando Cliente/Técnico estiverem fechados.","Atualizar agora",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
+            deploying=true;updateNow.Enabled=false;install.Enabled=false;preAuth.Enabled=false;unAuth.Enabled=false;grid.Enabled=false;
+            string root=Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,".."));
+            string script=Path.Combine(root,"scripts","Deploy-UpdateNow-SMB.ps1");
+            if(!File.Exists(script))throw new FileNotFoundException("Script de atualização ausente. Atualize o Técnico.");
+            string folder=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"SdeSuporte","updates",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(folder);
+            string manifest=Path.Combine(folder,"request.json"),result=Path.Combine(folder,"results.json");
+            Json.Write(manifest,new{targets,resultPath=result});
+            var start=new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"WindowsPowerShell","v1.0","powershell.exe")){UseShellExecute=true};
+            foreach(string argument in new[]{"-NoProfile","-ExecutionPolicy","Bypass","-File",script,"-ManifestPath",manifest})start.ArgumentList.Add(argument);
+            status.Text="Disparando atualizador remoto. Autentique no PowerShell.";
+            using var process=Process.Start(start)??throw new IOException("Não foi possível iniciar o PowerShell.");await process.WaitForExitAsync();
+            if(IsDisposed)return;
+            if(!File.Exists(result))throw new IOException("A operação não gerou resultado.");
+            var results=Json.Read<DeploymentResult[]>(result);int ok=0;
+            foreach(var row in rows)
+            {
+                string address=Convert.ToString(row.Cells[1].Value)??"";var item=results.FirstOrDefault(r=>r.Address==address);
+                row.Cells[4].Value=item is null?"Não executado":item.State+": "+item.Detail;
+                if(item?.State=="UpdateTriggered")ok++;
+            }
+            status.Text=$"Atualização disparada: {ok}/{targets.Length} máquinas. A instalação acontece quando o app estiver fechado.";
+        }catch(Exception e){if(!IsDisposed)MessageBox.Show(this,e.Message,"Atualizar agora");}
+        finally{deploying=false;if(!IsDisposed){updateNow.Enabled=true;install.Enabled=true;preAuth.Enabled=true;unAuth.Enabled=true;grid.Enabled=true;}}
     }
     static string PromptReason()
     {

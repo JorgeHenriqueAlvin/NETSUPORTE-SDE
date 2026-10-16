@@ -1,4 +1,4 @@
-#define AppVersion "0.12.1"
+#define AppVersion "0.12.2"
 #ifndef SetupRole
   #define SetupRole "combined"
 #endif
