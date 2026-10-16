@@ -1,4 +1,4 @@
-#define AppVersion "0.12.4"
+#define AppVersion "0.12.5"
 #ifndef SetupRole
   #define SetupRole "combined"
 #endif
@@ -53,6 +53,9 @@ Source: "..\dist\Technician\*"; DestDir: "{app}\Technician"; Excludes: "agent.sd
 Source: "..\scripts\Initialize-Console.ps1"; DestDir: "{app}\scripts"{#TechnicianComponent}
 Source: "..\scripts\Deploy-Agent.ps1"; DestDir: "{app}\scripts"{#TechnicianComponent}
 Source: "..\scripts\Install-RemoteAgent.ps1"; DestDir: "{app}\scripts"{#TechnicianComponent}
+Source: "..\scripts\Deploy-Agent-SMB.ps1"; DestDir: "{app}\scripts"{#TechnicianComponent}
+Source: "..\scripts\Deploy-AccessPolicy-SMB.ps1"; DestDir: "{app}\scripts"{#TechnicianComponent}
+Source: "..\scripts\Deploy-UpdateNow-SMB.ps1"; DestDir: "{app}\scripts"{#TechnicianComponent}
 Source: "..\release\SDE-Suporte-Cliente-Instalar.exe"; DestDir: "{app}\Packages"{#TechnicianComponent}
 Source: "..\release\SDE-Suporte-Cliente-Instalar.exe.sha256"; DestDir: "{app}\Packages"{#TechnicianComponent}
 #endif

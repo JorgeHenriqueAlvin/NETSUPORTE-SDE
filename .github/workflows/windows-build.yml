@@ -154,7 +154,7 @@ jobs:
           }
       - uses: actions/upload-artifact@v4
         with:
-          name: SDE-Suporte-Instaladores-0.12.4
+          name: SDE-Suporte-Instaladores-0.12.5
           if-no-files-found: error
           path: |
             release/*.exe
