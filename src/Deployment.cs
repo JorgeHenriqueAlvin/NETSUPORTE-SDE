@@ -61,13 +61,13 @@ sealed class DeploymentPanel:UserControl
     public DeploymentPanel()
     {
         Dock=DockStyle.Fill;Padding=new Padding(8);
-        var help=new Label{Dock=DockStyle.Top,Height=100,Text="LOCALIZAR MÁQUINAS E IMPLANTAR O CLIENTE\nA busca usa ping e portas do Windows, sem exigir agente. Portas abertas não comprovam que a máquina é Windows.\nPara instalar: selecione os destinos e autentique com uma conta de administrador. Exige WinRM configurado.\nHTTPS funciona sem domínio, com certificado válido. Kerberos usa nomes e conta do domínio. A senha não é gravada.\nA busca automática pesquisa até /22 por interface; edite a faixa para pesquisar outras redes internas."};
+        var help=new Label{Dock=DockStyle.Top,Height=120,Text="LOCALIZAR MÁQUINAS E IMPLANTAR O CLIENTE\nA busca usa ping e portas do Windows, sem exigir agente. Portas abertas não comprovam que a máquina é Windows.\nSelecione o método de instalação:\n • SMB + Agendador (recomendado, não exige WinRM; requer apenas conta admin + porta 445).\n • HTTPS/Kerberos (WinRM): mais rigoroso, exige WinRM habilitado nas máquinas-alvo.\nA busca pesquisa até /22 por interface; edite a faixa para outras redes internas. A senha não é gravada."};
         var bar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=85,AutoScroll=true};
         networks.Text=string.Join("; ",IPv4Range.LocalCidrs(true));
         var find=new Button{Text="Localizar máquinas",AutoSize=true};find.Click+=async(_,_)=>await Scan();
         var stop=new Button{Text="Parar busca",AutoSize=true};stop.Click+=(_,_)=>scan?.Cancel();
-        var select=new Button{Text="Selecionar com WinRM",AutoSize=true};select.Click+=(_,_)=>{foreach(DataGridViewRow row in grid.Rows)row.Cells[0].Value=mode.SelectedIndex==0?((NetworkHost)row.Tag!).WinRmHttps:((NetworkHost)row.Tag!).WinRmKerberos;};
-        mode.Items.AddRange(["HTTPS (sem exigir domínio)","Domínio (Kerberos)"]);mode.SelectedIndex=0;
+        var select=new Button{Text="Selecionar compatíveis",AutoSize=true};select.Click+=(_,_)=>{foreach(DataGridViewRow row in grid.Rows){var h=(NetworkHost)row.Tag!;row.Cells[0].Value=mode.SelectedIndex switch{0=>h.WinRmHttps,1=>h.WinRmKerberos,_=>h.Smb};}};
+        mode.Items.AddRange(["HTTPS (sem exigir domínio)","Domínio (Kerberos)","SMB + Agendador (sem WinRM)"]);mode.SelectedIndex=2;
         bar.Controls.AddRange([networks,find,stop,mode,select,install]);
         grid.Columns.Add(new DataGridViewCheckBoxColumn{Name="Selecionar",FillWeight=35});
         grid.Columns.Add(new DataGridViewTextBoxColumn{Name="IP",ReadOnly=true,FillWeight=65});
@@ -115,7 +115,8 @@ sealed class DeploymentPanel:UserControl
                 if(mode.SelectedIndex==1&&IPAddress.TryParse(target.Host,out _))throw new ArgumentException("Kerberos exige nome DNS do computador. Edite a coluna Nome para autenticar, ou use HTTPS.");
             }
             string root=Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,".."));
-            string installer=Path.Combine(root,"Packages","SDE-Suporte-Cliente-Instalar.exe"),script=Path.Combine(root,"scripts","Deploy-Agent.ps1");
+            string installer=Path.Combine(root,"Packages","SDE-Suporte-Cliente-Instalar.exe");
+            string script=Path.Combine(root,"scripts",mode.SelectedIndex==2?"Deploy-Agent-SMB.ps1":"Deploy-Agent.ps1");
             string expected=File.ReadAllText(installer+".sha256").Trim();
             if(expected.Length!=64||!expected.All(Uri.IsHexDigit)||Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(installer)))!=expected.ToUpperInvariant())throw new InvalidDataException("O pacote Cliente não passou na verificação. Reinstale o Técnico atualizado.");
             string names=string.Join("\n",targets.Take(15).Select(t=>$"{t.Host} ({t.Address})"));
@@ -123,7 +124,8 @@ sealed class DeploymentPanel:UserControl
             deploying=true;install.Enabled=false;grid.Enabled=false;mode.Enabled=false;
             string folder=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"SdeSuporte","deployments",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(folder);
             string manifest=Path.Combine(folder,"request.json"),result=Path.Combine(folder,"results.json");
-            Json.Write(manifest,new{targets,mode=mode.SelectedIndex==0?"Https":"Kerberos",installer,sha256=expected,resultPath=result});
+            string modeKey=mode.SelectedIndex switch{0=>"Https",1=>"Kerberos",_=>"Smb"};
+            Json.Write(manifest,new{targets,mode=modeKey,installer,sha256=expected,resultPath=result});
             var start=new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"WindowsPowerShell","v1.0","powershell.exe")){UseShellExecute=true};
             foreach(string argument in new[]{"-NoProfile","-ExecutionPolicy","Bypass","-File",script,"-ManifestPath",manifest})start.ArgumentList.Add(argument);
             status.Text="Implantação em andamento. Autentique na janela do PowerShell; não feche essa janela.";
