@@ -63,8 +63,8 @@ def main():
             raise
         release = call("POST", "/releases", value={
             "tag_name": tag, "target_commitish": sha, "draft": True,
-            "name": "SDE Suporte " + version + " — integração Raspberry/Linux",
-            "body": "Adiciona Raspberry/Linux pelo IP no Técnico Windows, com identificação do nome, diagnóstico de conexão e verificação da equipe. Atualização Windows pelo mecanismo existente, quando os aplicativos estiverem fechados. O agente Raspberry ainda exige atualização manual e conectividade de rede. Instaladores compilados e testados no Windows; verificação SHA256 pelo atualizador. A autorização existente do Técnico é preservada; o instalador público não contém autorização privada nova.",
+            "name": "SDE Suporte " + version + " — busca automática de Raspberry/Linux",
+            "body": "Adiciona Buscar Raspberry Pi ao Técnico Windows para localizar agentes Linux nas redes locais sem informar IP, exibindo nome, endereço e disponibilidade do desktop após verificar equipe, certificado e autorização. Mantém a opção pelo IP. Atualização Windows pelo mecanismo existente, quando os aplicativos estiverem fechados. O agente Raspberry ainda exige atualização manual e conectividade de rede. Instaladores compilados e testados no Windows; verificação SHA256 pelo atualizador. A autorização existente do Técnico é preservada; o instalador público não contém autorização privada nova.",
         })
     if release["target_commitish"] != sha:
         raise ValueError("Version already belongs to a different source commit; increment it")

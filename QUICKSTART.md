@@ -74,3 +74,18 @@ Ao conectar, o console detecta os monitores do funcionário e abre o principal. 
 Cada atendimento pede confirmação ao funcionário e mostra o nome do técnico. O prazo de resposta é 30 segundos. Recusa ou ausência de resposta bloqueia o atendimento, sem bypass. Solicitações, respostas, acessos e encerramentos ficam no audit.jsonl em %LOCALAPPDATA%\SdeSuporte\logs do funcionário. A TI pode preautorizar uma máquina mediante configuração administrativa local e justificativa usando scripts/Configure-AccessPolicy.ps1; essa política vale para solicitações futuras e não transforma uma recusa em autorização. A política pode ser restaurada para Confirmacao pelo mesmo script. Registro da política: Agent/access-policy-audit.jsonl. São registros locais, não um servidor central imutável.
 
 Avisos globais aceitam JPEG/PNG, normalizados até 1.600 pixels, com legenda opcional. Selecione clientes individualmente ou use Selecionar todos/Limpar seleção. Somente os marcados e online recebem. A confirmação informa o total e se há foto. O quadro do funcionário guarda até oito avisos nesta sessão do Windows; o histórico não é persistido após encerrar o agente. Fotos não são escritas nos logs; o registro contém o hash da imagem e a identidade autenticada do técnico. O remetente continua aparecendo ao funcionário somente como Aviso da TI.
+
+
+## Buscar Raspberry Pi sem saber o IP (Técnico 0.12.7)
+
+1. No Técnico Windows, clique em **Buscar Raspberry Pi**. A busca começa automaticamente.
+2. Aguarde a varredura e a identificação dos agentes Linux da equipe.
+3. Selecione o nome/IP encontrado e clique em **Adicionar selecionado**.
+4. Na lista principal, clique em **Conectar** para solicitar atendimento.
+
+A janela permite parar ou repetir a busca e mostra a disponibilidade do desktop.
+O Raspberry deve estar ligado e com o agente SDE iniciado; não é necessário atualizar
+o agente Linux para esta busca. A identificação Linux não confirma o modelo físico.
+São pesquisadas redes privadas ativas, até /22 por interface e 65.536 IPs no total,
+com 32 consultas simultâneas. Redes maiores ou outras VLANs podem exigir a opção
+**Varredura de IP** e liberação de roteamento/firewall.
