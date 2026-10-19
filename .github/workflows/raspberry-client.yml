@@ -1,0 +1,44 @@
+name: Raspberry Pi Client
+on:
+  workflow_dispatch:
+  push:
+    paths: ['linux/**', 'tests-linux/**', 'src/Protocol.cs', 'src/Enrollment.cs', 'src/TeamAccess.cs', 'src/Discovery.cs', 'src/TeamDeployment.json', '.github/workflows/raspberry-client.yml']
+  pull_request:
+    paths: ['linux/**', 'tests-linux/**', 'src/Protocol.cs', 'src/Enrollment.cs', 'src/TeamAccess.cs', 'src/Discovery.cs', 'src/TeamDeployment.json', '.github/workflows/raspberry-client.yml']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet build linux/SdeSuporte.Linux.csproj -c Release
+      - run: python3 -m unittest discover -s linux/tests -p 'test_*.py'
+      - name: Verify Windows-compatible signed protocol (mock desktop)
+        run: dotnet run --project tests-linux/ProtocolTests.csproj -c Release
+      - name: Install virtual desktop dependencies
+        run: sudo apt-get update && sudo apt-get install -y xvfb xdotool x11-xserver-utils python3-tk python3-pil python3-pil.imagetk
+      - name: Verify X11 capture and input
+        run: |
+          xvfb-run -a bash -c '
+            python3 linux/desktop.py monitors
+            python3 linux/desktop.py frame all > /tmp/sde-frame.jpg
+            python3 -c '\''from PIL import Image; im=Image.open("/tmp/sde-frame.jpg"); assert im.format=="JPEG"; assert im.width>0'\''
+            printf '\''{"kind":"move","x":10,"y":20}'\'' | python3 linux/desktop.py input
+          '
+      - name: Publish self-contained ARM64 client
+        run: |
+          dotnet publish linux/SdeSuporte.Linux.csproj -c Release -r linux-arm64 --self-contained true -o release/raspberry
+          cp linux/desktop.py linux/install.sh linux/uninstall.sh linux/README.md release/raspberry/
+          chmod +x release/raspberry/SDE-Suporte-Cliente-Linux release/raspberry/*.sh
+          tar -czf SDE-Suporte-Raspberry-Pi-ARM64.tar.gz -C release/raspberry .
+          sha256sum SDE-Suporte-Raspberry-Pi-ARM64.tar.gz > SDE-Suporte-Raspberry-Pi-ARM64.tar.gz.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SDE-Suporte-Raspberry-Pi-ARM64
+          path: |
+            SDE-Suporte-Raspberry-Pi-ARM64.tar.gz
+            SDE-Suporte-Raspberry-Pi-ARM64.tar.gz.sha256

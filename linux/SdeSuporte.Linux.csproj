@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <DefineConstants>$(DefineConstants);LINUX_AGENT</DefineConstants>
+    <AssemblyName>SDE-Suporte-Cliente-Linux</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../src/Protocol.cs" Link="Protocol.cs" />
+    <Compile Include="../src/Enrollment.cs" Link="Enrollment.cs" />
+    <Compile Include="../src/TeamAccess.cs" Link="TeamAccess.cs" />
+    <Compile Include="../src/Discovery.cs" Link="Discovery.cs" />
+    <EmbeddedResource Include="../src/TeamDeployment.json" LogicalName="SdeSuporte.TeamDeployment" />
+    <Content Include="desktop.py" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
