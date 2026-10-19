@@ -61,6 +61,7 @@ sealed class Technician:Form
         Button Add(string label,Func<Task> action){var b=new Button{Text=label,AutoSize=true};b.Click+=async(_,_)=>await Safe(action);toolbar.Controls.Add(b);return b;}
         Add("Atualizar máquinas",async()=>{if(discovery is not null)await discovery.Search();await ScanLocal();});
         Add("Varredura de IP",ChooseScan);
+        Add("Configurações da máquina",MachineDetails);
         Add("Buscar Raspberry Pi",FindLinuxAgents);
         Add("Adicionar Raspberry/Linux",AddLinuxAgent);
         Add("Parar varredura",()=>{scanning?.Cancel();return Task.CompletedTask;});
@@ -182,6 +183,12 @@ sealed class Technician:Form
         if(dialog.ShowDialog(this)!=DialogResult.OK||dialog.SelectedDevice is not Device device||closing)return Task.CompletedTask;
         AddVerifiedDevice(device);
         return Task.CompletedTask;
+    }
+    Task MachineDetails()
+    {
+        if(list.SelectedItem is not Device device)throw new InvalidOperationException("Selecione uma máquina na lista.");
+        using var dialog=new MachineDetailsDialog(device,identity,lifetime.Token);
+        dialog.ShowDialog(this);return Task.CompletedTask;
     }
     Task FindLinuxAgents()
     {

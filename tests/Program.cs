@@ -28,7 +28,7 @@ static class Tests
                 else Json.Write(Path.Combine(args[1],"deployment.json"),Enrollment.Create(id,[],"Teste"));
                 Json.Write(Path.Combine(args[1],"tecnico.sdetech"),id.Public);File.WriteAllBytes(Path.Combine(args[1],"private-test.pk8"),id.ExportPrivate());return 0;
             }
-            if(args[0]=="protocol") {Protocol();EnrollmentTests();TeamTests();RangeTests();MessagingTests();await InventoryTests();TechnicianSetupTests();return 0;}
+            if(args[0]=="protocol") {var inventory=MachineInventory.Collect();Check(inventory["Nome da máquina / host"]==Environment.MachineName&&inventory.ContainsKey("RAM total")&&inventory.ContainsKey("Sistema operacional"),"inventario Windows coleta host, sistema e RAM reais");Protocol();EnrollmentTests();TeamTests();RangeTests();MessagingTests();await InventoryTests();TechnicianSetupTests();return 0;}
             if(args[0]=="template"){InstallerPackage.CreateTemplate(args[1],args[2],args[3]);return 0;}
             if(args[0]=="package"){using var creator=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Preparador");InstallerPackage.Personalize(args[1],args[2],Enrollment.Create(creator,[],"Teste"));return 0;}
             if(args[0]=="live-team"){await LiveTeam(args[1],args[2]);return 0;}
@@ -101,6 +101,7 @@ static class Tests
                     var tabs=console.Controls.OfType<TabControl>().Single();tabs.SelectedIndex=2;Application.DoEvents();
                     IEnumerable<Control> Descendants(Control parent)=>parent.Controls.Cast<Control>().SelectMany(c=>new[]{c}.Concat(Descendants(c)));
                     Check(Descendants(console).OfType<Button>().Any(b=>b.Text=="Adicionar Raspberry/Linux"),"console oferece adicionar Raspberry/Linux pelo IP");
+                    Check(Descendants(console).OfType<Button>().Any(b=>b.Text=="Configurações da máquina"),"console oferece configuracoes da maquina");
                     Check(Descendants(console).OfType<Button>().Any(b=>b.Text=="Buscar Raspberry Pi"),"console oferece busca automatica de Raspberry");
                     using(var finder=new FindLinuxAgentsDialog([previewIdentity.Public.Id],previewIdentity,CancellationToken.None)){
                         Check(finder.SelectedDevice is null,"busca inicia sem selecao nao verificada");

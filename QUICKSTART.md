@@ -89,3 +89,21 @@ o agente Linux para esta busca. A identificação Linux não confirma o modelo f
 São pesquisadas redes privadas ativas, até /22 por interface e 65.536 IPs no total,
 com 32 consultas simultâneas. Redes maiores ou outras VLANs podem exigir a opção
 **Varredura de IP** e liberação de roteamento/firewall.
+
+
+## Configurações da máquina (0.12.8)
+
+Selecione uma máquina e clique em **Configurações da máquina**. A consulta não
+inicia controle remoto. Mostra nome/host, sistema operacional (incluindo Windows
+10/11/Server quando informado pelo sistema), arquitetura, processador e CPUs
+lógicas, RAM total/disponível, discos e espaço livre, IP/MAC, tempo ligado e
+fabricante/modelo/placa-mãe/BIOS quando disponíveis. Atualizar informações faz
+uma nova consulta. A RAM e o espaço livre são valores do momento.
+
+É necessário atualizar também o Cliente Windows para 0.12.8. No Raspberry,
+instale o novo pacote ARM64 do workflow Raspberry Pi Client; a atualização Linux
+continua manual. Agentes anteriores permanecem compatíveis com o atendimento,
+mas não fornecem inventário. Nome de host não confirma função de servidor:
+o tipo de sistema Windows é mostrado separadamente. Sufixo DNS não comprova
+vínculo com Active Directory. A consulta exige credencial de técnico autorizada,
+certificado conferido e gera registro no log do agente.

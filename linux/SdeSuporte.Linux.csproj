@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
+    <Version>0.12.8</Version>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -7,6 +8,7 @@
     <AssemblyName>SDE-Suporte-Cliente-Linux</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../src/MachineInventory.cs" Link="MachineInventory.cs" />
     <Compile Include="../src/Protocol.cs" Link="Protocol.cs" />
     <Compile Include="../src/Enrollment.cs" Link="Enrollment.cs" />
     <Compile Include="../src/TeamAccess.cs" Link="TeamAccess.cs" />

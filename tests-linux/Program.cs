@@ -53,6 +53,12 @@ try{
     if(!ready)throw new Exception("Server unavailable.",lastError);
     using var stranger=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Unknown");
     using var forbidden=new RemoteClient(device with {Host="127.0.0.1"},stranger);
+    using(var inventory=await client.Request(HttpMethod.Get,"/inventory"))
+    {
+        var fields=System.Text.Json.JsonSerializer.Deserialize<Dictionary<string,string>>(await inventory.Content.ReadAsStringAsync(),Json.Options)!;
+        if(fields["Nome da máquina / host"]!=Environment.MachineName||!fields.ContainsKey("RAM total")||!fields.ContainsKey("Sistema operacional"))throw new Exception("Linux inventory missing real host, OS or RAM.");
+    }
+    try{using var deniedInventory=await forbidden.Request(HttpMethod.Get,"/inventory");throw new Exception("Unauthorized inventory accepted.");}catch(HttpRequestException e)when(e.StatusCode==System.Net.HttpStatusCode.Forbidden){}
     try{using var info=await forbidden.Request(HttpMethod.Get,"/info");throw new Exception("Unauthorized identity accepted.");}catch(HttpRequestException e)when(e.StatusCode==System.Net.HttpStatusCode.Forbidden){}
     if(System.Net.IPAddress.TryParse(device.Host,out var reachable)){
         var manual=await AgentConnection.Test(device.Host,[issuer.Public.Id],tech,port:device.Port);
