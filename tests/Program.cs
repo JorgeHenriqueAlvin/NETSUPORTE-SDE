@@ -101,6 +101,11 @@ static class Tests
                     var tabs=console.Controls.OfType<TabControl>().Single();tabs.SelectedIndex=2;Application.DoEvents();
                     IEnumerable<Control> Descendants(Control parent)=>parent.Controls.Cast<Control>().SelectMany(c=>new[]{c}.Concat(Descendants(c)));
                     Check(Descendants(console).OfType<Button>().Any(b=>b.Text=="Adicionar Raspberry/Linux"),"console oferece adicionar Raspberry/Linux pelo IP");
+                    Check(Descendants(console).OfType<Button>().Any(b=>b.Text=="Buscar Raspberry Pi"),"console oferece busca automatica de Raspberry");
+                    using(var finder=new FindLinuxAgentsDialog([previewIdentity.Public.Id],previewIdentity,CancellationToken.None)){
+                        Check(finder.SelectedDevice is null,"busca inicia sem selecao nao verificada");
+                        Check(!Descendants(finder).OfType<Button>().Single(b=>b.Text=="Adicionar selecionado").Enabled,"busca exige resultado verificado antes de adicionar");
+                    }
                     using(var linuxDialog=new AddLinuxAgentDialog([previewIdentity.Public.Id],previewIdentity,CancellationToken.None)){
                         linuxDialog.Show(console);Application.DoEvents();
                         Check(linuxDialog.SelectedDevice is null,"dialogo inicia sem computador nao verificado");

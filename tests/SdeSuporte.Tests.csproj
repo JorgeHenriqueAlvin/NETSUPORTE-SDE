@@ -13,6 +13,7 @@
   <Compile Include="../src/NetworkScanner.cs" Link="NetworkScanner.cs" />
   <Compile Include="../src/AgentConnection.cs" Link="AgentConnection.cs" />
   <Compile Include="../src/AddLinuxAgentDialog.cs" Link="AddLinuxAgentDialog.cs" />
+  <Compile Include="../src/FindLinuxAgentsDialog.cs" Link="FindLinuxAgentsDialog.cs" />
   <EmbeddedResource Include="../src/TeamDeployment.json" LogicalName="SdeSuporte.TeamDeployment" />
  </ItemGroup>
 </Project>
