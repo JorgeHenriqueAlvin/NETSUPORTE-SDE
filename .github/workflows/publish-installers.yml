@@ -1,4 +1,4 @@
-name: Publicar instaladores aprovados
+name: Conferir atualização publicada
 on:
   workflow_dispatch:
   workflow_run:
@@ -6,77 +6,36 @@ on:
     types: [completed]
 permissions:
   actions: read
-  contents: write
-concurrency:
-  group: publicar-instaladores
-  cancel-in-progress: false
+  contents: read
 jobs:
-  publish:
+  verify:
     if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      TRIGGER_RUN: ${{ github.event.workflow_run.id }}
-      RELEASE_TAG: v0.12.5
+      EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
-      - name: Selecionar compilacao Windows aprovada e baixar os instaladores
+      - name: Conferir release e manifesto publicados pelo job Windows
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -n "$TRIGGER_RUN" ]]; then
-            run_id="$TRIGGER_RUN"
-          else
-            run_id=$(gh api "repos/$GH_REPO/actions/workflows/windows-build.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].id')
-          fi
-          [[ "$run_id" =~ ^[0-9]+$ ]]
-          conclusion=$(gh api "repos/$GH_REPO/actions/runs/$run_id" --jq '.conclusion')
-          [[ "$conclusion" == 'success' ]]
-          build_sha=$(gh api "repos/$GH_REPO/actions/runs/$run_id" --jq '.head_sha')
-          echo "BUILD_SHA=$build_sha" >> "$GITHUB_ENV"
-          gh run download "$run_id" --repo "$GH_REPO" --name SDE-Suporte-Instaladores-0.12.5 --dir package
-          test -s package/release/SDE-Suporte-Cliente-Instalar.exe
-          test -s package/release/SDE-Suporte-Tecnico-Base.exe
-      - name: Publicar arquivos com download direto
-        shell: bash
-        run: |
-          set -euo pipefail
+          release_sha=$(gh api "repos/$GH_REPO/releases/latest" --jq '.target_commitish')
           current_sha=$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq '.object.sha')
-          if [[ "$current_sha" != "$BUILD_SHA" ]]; then
-            echo 'Uma compilacao mais recente substituiu este resultado; publicacao ignorada.'
+          if [[ -n "$EXPECTED_SHA" && "$EXPECTED_SHA" != "$current_sha" ]]; then
+            echo 'Uma compilação mais recente substituiu este resultado.'
             exit 0
           fi
-          cat > notes.md <<'NOTES'
-          Atualização automática reforçada: o SDE Suporte consulta uma versão nova imediatamente no boot e continua verificando a cada hora. O manifesto online não fica mais preso a uma janela de cache de 24 horas. Se a internet ainda não estiver pronta na inicialização, o atualizador tenta novamente e pode usar o cache local com segurança.
-
-          Quando uma atualização é detectada durante o expediente, o pacote pode ser baixado e validado em segundo plano, mas a instalação espera Cliente e Técnico fecharem. No próximo boot, o aplicativo aguarda brevemente o atualizador para permitir a instalação antes da abertura normal, sem bloquear indefinidamente uma máquina com rede lenta.
-
-          A validação SHA256 e os limites de tamanho dos instaladores continuam obrigatórios. Todo resultado de atualização permanece registrado em UpdateCache/update.log.
-
-          Também permanecem as funções da versão anterior: detecção automática de múltiplos monitores, seleção de um monitor ou todos, aviso de atendimento no monitor selecionado, chat bidirecional, avisos globais com fotos, descoberta de clientes e implantação administrativa autorizada.
-
-          Dois instaladores Windows x64, sem dependência de domínio:
-
-          - **Cliente:** instale nos computadores dos funcionários. A configuração é automática.
-          - **Técnico:** use o instalador autorizado fornecido de forma privada à TI. Ele configura a autorização e o nome do usuário automaticamente, sem pedir código.
-
-          O funcionário precisa estar conectado e com o Windows desbloqueado para atendimento interativo. Entre VLANs, permita TCP 7443. Consulte QUICKSTART.md para os demais detalhes.
-          NOTES
-          if ! gh release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" --repo "$GH_REPO" --target "$BUILD_SHA" --title 'SDE Suporte 0.12.5 — instalação SMB sem WinRM + pré-autorização remota' --notes-file notes.md
-          else
-            tag_sha=$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')
-            if [[ "$tag_sha" != "$BUILD_SHA" ]]; then
-              echo 'A versao publicada pertence a outra compilacao. Incremente a versao antes de publicar.' >&2
-              exit 1
-            fi
-          fi
-          python3 - <<'PYMANIFEST'
-          import hashlib,json,pathlib
-          assets={}
-          for name in ['SDE-Suporte-Cliente-Instalar.exe','SDE-Suporte-Tecnico-Base.exe']:
-              data=(pathlib.Path('package/release')/name).read_bytes()
-              assets[name]={'sha256':hashlib.sha256(data).hexdigest(),'size':len(data)}
-          pathlib.Path('package/update.json').write_text(json.dumps({'version':'0.12.5','assets':assets}))
-          PYMANIFEST
-          gh release upload "$RELEASE_TAG" --repo "$GH_REPO" --clobber package/release/SDE-Suporte-Cliente-Instalar.exe package/release/SDE-Suporte-Tecnico-Base.exe package/QUICKSTART.md package/update.json
+          [[ "$release_sha" == "$current_sha" ]]
+          gh release download --repo "$GH_REPO" --pattern update.json --dir manifest
+          python3 - <<'PY'
+          import json,re
+          from pathlib import Path
+          value=json.loads(Path('manifest/update.json').read_text())
+          assert re.fullmatch(r'\d+\.\d+\.\d+',value['version'])
+          for name in ('SDE-Suporte-Cliente-Instalar.exe','SDE-Suporte-Tecnico-Base.exe'):
+              item=value['assets'][name]
+              assert re.fullmatch(r'[a-fA-F0-9]{64}',item['sha256'])
+              assert 1_000_000<=item['size']<=250_000_000
+          print('Manifesto da atualização Windows publicado e válido.')
+          PY

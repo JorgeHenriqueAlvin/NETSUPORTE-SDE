@@ -10,7 +10,7 @@ on:
       - 'tests/**'
       - 'bootstrapper/**'
 permissions:
-  contents: read
+  contents: write
 jobs:
   windows:
     runs-on: windows-latest
@@ -19,6 +19,8 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+      - name: Testar publicação e integridade dos pacotes
+        run: python -m unittest discover -s tests -p test_publish_installers.py
       - name: Validar sintaxe dos scripts PowerShell
         shell: pwsh
         run: |
@@ -152,9 +154,15 @@ jobs:
               if ($uninstall.ExitCode -ne 0) { throw 'Desinstalacao da implantacao falhou.' }
             }
           }
+      - name: Publicar versão testada para atualização automática
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/Publish-Installers.py
       - uses: actions/upload-artifact@v4
+        if: vars.SDE_UPLOAD_ARTIFACTS == 'true'
         with:
-          name: SDE-Suporte-Instaladores-0.12.5
+          name: SDE-Suporte-Instaladores-0.12.6
           if-no-files-found: error
           path: |
             release/*.exe
@@ -164,6 +172,7 @@ jobs:
 
 
       - uses: actions/upload-artifact@v4
+        if: vars.SDE_UPLOAD_ARTIFACTS == 'true'
         with:
           name: SDE-Visual-QA
           path: ${{ runner.temp }}/SDE-Visual-QA/*.png

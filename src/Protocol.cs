@@ -23,12 +23,14 @@ public record RemoteMonitor(string Id,string Name,int X,int Y,int Width,int Heig
 {
     public override string ToString()=>Name;
 }
+#if !LINUX_AGENT
 public static class MonitorCoordinates
 {
     public static RemoteMonitor[] Inventory(Screen[] displays)=>displays.Select((s,i)=>new RemoteMonitor(s.DeviceName,$"Monitor {i+1}"+(s.Primary?" • Principal":"")+$" ({s.Bounds.Width} × {s.Bounds.Height})",s.Bounds.X,s.Bounds.Y,s.Bounds.Width,s.Bounds.Height,s.Primary)).ToArray();
     public static string Layout(Screen[] displays)=>Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(Inventory(displays),Json.Options));
     public static Point Offset(Point imagePoint,int offsetX,int offsetY)=>new(checked(imagePoint.X+offsetX),checked(imagePoint.Y+offsetY));
 }
+#endif
 public record InputCommand(string Kind, int X=0, int Y=0, string Text="", int Key=0, int Delta=0,string Layout="");
 public static class Json
 {
@@ -144,3 +146,4 @@ public sealed class RemoteClient : IDisposable
     public async Task Stop() { try {if(Session is not null) {using var r=await Request(HttpMethod.Post,"/session/end");}}finally{Session=null;} }
     public void Dispose()=>http.Dispose();
 }
+

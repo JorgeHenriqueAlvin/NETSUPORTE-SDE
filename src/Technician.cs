@@ -61,6 +61,7 @@ sealed class Technician:Form
         Button Add(string label,Func<Task> action){var b=new Button{Text=label,AutoSize=true};b.Click+=async(_,_)=>await Safe(action);toolbar.Controls.Add(b);return b;}
         Add("Atualizar máquinas",async()=>{if(discovery is not null)await discovery.Search();await ScanLocal();});
         Add("Varredura de IP",ChooseScan);
+        Add("Adicionar Raspberry/Linux",AddLinuxAgent);
         Add("Parar varredura",()=>{scanning?.Cancel();return Task.CompletedTask;});
         Add("Equipe",()=>{MessageBox.Show($"Equipe: {TeamAccess.Root.Name}\nTécnico: {identity.Public.Name}\n\nUse o instalador Técnico autorizado nos computadores da TI. Ele configura a autorização automaticamente.\nOs funcionários usam o instalador Cliente.","Equipe autorizada");return Task.CompletedTask;});
         var advanced=new ContextMenuStrip();
@@ -173,6 +174,18 @@ sealed class Technician:Form
     {
         if(IsDisposed||closing)return;
         try{BeginInvoke(new Action(()=>{if(!closing)Discovered(device);}));}catch(InvalidOperationException){}
+    }
+    Task AddLinuxAgent()
+    {
+        using var dialog=new AddLinuxAgentDialog(authorities.Select(a=>a.Id).ToArray(),identity,lifetime.Token);
+        if(dialog.ShowDialog(this)!=DialogResult.OK||dialog.SelectedDevice is not Device device||closing)return Task.CompletedTask;
+        var previous=devices.FirstOrDefault(d=>d.Id==device.Id);
+        devices.RemoveAll(d=>d.Id==device.Id);devices.Add(device);
+        try{SaveDevices();}catch{devices.RemoveAll(d=>d.Id==device.Id);if(previous is not null)devices.Add(previous);throw;}
+        online[device.Id]=DateTimeOffset.UtcNow;probed[device.Id]=DateTimeOffset.UtcNow;
+        search.Clear();Filter("");list.SelectedItem=device;list.Invalidate();
+        status.Text=$"{device.Name} salvo na lista ({device.Host}). Selecione Conectar para solicitar atendimento.";
+        return Task.CompletedTask;
     }
     async Task ChooseScan()
     {
@@ -423,3 +436,4 @@ sealed class NameDialog:Form
         return form.ShowDialog()==DialogResult.OK&&!string.IsNullOrWhiteSpace(input.Text)?input.Text.Trim():null;
     }
 }
+
