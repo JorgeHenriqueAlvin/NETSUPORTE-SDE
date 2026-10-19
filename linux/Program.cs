@@ -153,7 +153,8 @@ app.Run(async context=>{
         if(path=="/frame"&&req.Method=="GET"){
             var screens=JsonSerializer.Deserialize<RemoteMonitor[]>(await desktop.Call("monitors"),Json.Options)!;
             var monitor=req.Query["monitor"].FirstOrDefault()??"all";
-            var selected=monitor=="all"?null:screens.FirstOrDefault(m=>m.Id==monitor)??throw new ArgumentException("Monitor inexistente.");
+            var selected=monitor=="all"?null:monitor=="primary"?screens.FirstOrDefault(m=>m.Primary)??screens.First():screens.FirstOrDefault(m=>m.Id==monitor)??throw new ArgumentException("Monitor inexistente.");
+            monitor=selected?.Id??"all";
             // Python layout bytes are the source of truth for stale-layout input checks.
             context.Response.Headers["X-SDE-Monitors"]=Encoding.UTF8.GetString(await desktop.Call("layout")).Trim();
             context.Response.Headers["X-SDE-Monitor"]=Uri.EscapeDataString(monitor);

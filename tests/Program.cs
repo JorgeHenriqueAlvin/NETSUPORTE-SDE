@@ -100,6 +100,15 @@ static class Tests
                     for(int i=0;i<3;i++){var d=new Device(Guid.NewGuid().ToString(),"Cliente "+i,"Teste","127.0.0.1",17443,new string('0',64));fixtures.Add(d);if(i<2)presence[d.Id]=DateTimeOffset.UtcNow;}
                     var tabs=console.Controls.OfType<TabControl>().Single();tabs.SelectedIndex=2;Application.DoEvents();
                     IEnumerable<Control> Descendants(Control parent)=>parent.Controls.Cast<Control>().SelectMany(c=>new[]{c}.Concat(Descendants(c)));
+                    Check(Descendants(console).OfType<Button>().Any(b=>b.Text=="Adicionar Raspberry/Linux"),"console oferece adicionar Raspberry/Linux pelo IP");
+                    using(var linuxDialog=new AddLinuxAgentDialog([previewIdentity.Public.Id],previewIdentity,CancellationToken.None)){
+                        linuxDialog.Show(console);Application.DoEvents();
+                        Check(linuxDialog.SelectedDevice is null,"dialogo inicia sem computador nao verificado");
+                        Check(!Descendants(linuxDialog).OfType<Button>().Single(b=>b.Text=="Adicionar à lista").Enabled,"salvar desabilitado antes de verificar agente");
+                        var ipField=Descendants(linuxDialog).OfType<TextBox>().Single(b=>!b.Multiline);ipField.Text="10.37.3.163";
+                        Check(!Descendants(linuxDialog).OfType<Button>().Single(b=>b.Text=="Adicionar à lista").Enabled,"alterar IP exige novo teste");
+                        linuxDialog.Close();
+                    }
                     var targets=(CheckedListBox)typeof(Technician).GetField("noticeTargets",flags)!.GetValue(console)!;
                     Descendants(console).OfType<Button>().Single(b=>b.Text=="Selecionar todos").PerformClick();Check(targets.CheckedItems.Count==2,"selecionar todos marca somente clientes online");
                     Descendants(console).OfType<Button>().Single(b=>b.Text=="Limpar seleção").PerformClick();Check(targets.CheckedItems.Count==0,"limpar selecao desmarca todos os destinatarios");
@@ -429,3 +438,4 @@ static class Tests
     [DllImport("user32.dll")]static extern bool SetForegroundWindow(IntPtr h);
     [DllImport("user32.dll")]static extern IntPtr GetForegroundWindow();
 }
+

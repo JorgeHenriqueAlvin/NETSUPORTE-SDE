@@ -2,9 +2,9 @@ name: Raspberry Pi Client
 on:
   workflow_dispatch:
   push:
-    paths: ['linux/**', 'tests-linux/**', 'src/Protocol.cs', 'src/Enrollment.cs', 'src/TeamAccess.cs', 'src/Discovery.cs', 'src/TeamDeployment.json', '.github/workflows/raspberry-client.yml']
+    paths: ['linux/**', 'tests-linux/**', 'src/Protocol.cs', 'src/AgentConnection.cs', 'src/NetworkScanner.cs', 'src/Enrollment.cs', 'src/TeamAccess.cs', 'src/Discovery.cs', 'src/TeamDeployment.json', '.github/workflows/raspberry-client.yml']
   pull_request:
-    paths: ['linux/**', 'tests-linux/**', 'src/Protocol.cs', 'src/Enrollment.cs', 'src/TeamAccess.cs', 'src/Discovery.cs', 'src/TeamDeployment.json', '.github/workflows/raspberry-client.yml']
+    paths: ['linux/**', 'tests-linux/**', 'src/Protocol.cs', 'src/AgentConnection.cs', 'src/NetworkScanner.cs', 'src/Enrollment.cs', 'src/TeamAccess.cs', 'src/Discovery.cs', 'src/TeamDeployment.json', '.github/workflows/raspberry-client.yml']
 permissions:
   contents: read
 jobs:

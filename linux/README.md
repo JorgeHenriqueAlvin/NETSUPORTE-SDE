@@ -75,3 +75,9 @@ Wayland, tela de login, desktop bloqueado, implantação WinRM/SMB em Linux, con
 A verificação de bloqueio depende de `loginctl` com `Active=yes` e `LockedHint=no`. Se o desktop não informa esses estados, o acesso é recusado; não remova essa verificação. A sessão termina após 20 segundos sem atividade do console e libera teclas/botões mantidos.
 
 Referência do Raspberry Pi para selecionar X11: https://www.raspberrypi.com/documentation/computers/configuration.html
+
+## Adicionar manualmente no Técnico Windows
+
+No Técnico atualizado, clique em **Adicionar Raspberry/Linux**. Digite o IP mostrado por `hostname -I` e clique em **Testar conexão**. Após verificar a equipe, o certificado e a autorização, o nome real da máquina aparece. Clique em **Adicionar à lista** e depois em **Conectar**. O cadastro é salvo em `computers.json` e reaparece após abrir o Técnico novamente, sem duplicar o mesmo identificador.
+
+O teste distingue IP inválido, endereço inacessível, porta recusada, tempo esgotado, falha HTTPS, cadastro de outra equipe e credencial não autorizada. Não configura firewall ou roteador. A tela bloqueada pode ser cadastrada, mas o controle exige o desktop disponível e a autorização local.
