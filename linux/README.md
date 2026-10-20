@@ -1,4 +1,4 @@
-# Cliente SDE Suporte 0.12.14 para Raspberry Pi 4
+# Cliente SDE Suporte 0.12.19 para Raspberry Pi 4
 
 Alvo: **Raspberry Pi OS com desktop, 64 bits (ARM64), sessão X11**.
 Este projeto adiciona o papel **Cliente**: um técnico no Windows encontra e atende o Raspberry na rede interna usando o console existente. O console Técnico continua sendo Windows.
@@ -70,7 +70,7 @@ No desktop do Raspberry, `SDE-Suporte-Cliente-Linux --check` valida o acesso aos
 
 A compilação e os testes automatizados não substituem um piloto em Raspberry Pi físico. Não há validação física de desempenho, layout de teclado ABNT2 ou dois monitores neste ambiente. Alguns atalhos especiais podem exigir ajustes de mapeamento; a opção de enviar texto aceita Unicode.
 
-Wayland, tela de login, desktop bloqueado, implantação WinRM/SMB em Linux, console Técnico Linux e acesso pela internet sem roteamento não estão implementados. Após o bootstrap manual da versão 0.12.14, o supervisor reinicia após falha e consulta atualizações verificadas a cada hora, aplicando somente depois de o agente encerrar ocioso, sem atendimento. Use `bash ~/.local/lib/sde-suporte/diagnose.sh` para diagnóstico. Consulte o guia `docs/OPERACAO-0.12.14.md` no repositório. O Cliente não muda o modo quiosque do Chromium, a configuração da TV ou o fullscreen do Painel TV.
+Wayland, tela de login, desktop bloqueado, implantação WinRM/SMB em Linux, console Técnico Linux e acesso pela internet sem roteamento não estão implementados. Após o bootstrap manual da versão 0.12.19, o supervisor reinicia após falha e consulta atualizações verificadas a cada hora, aplicando somente depois de o agente encerrar ocioso, sem atendimento. Use `bash ~/.local/lib/sde-suporte/diagnose.sh` para diagnóstico. Consulte o guia de operação correspondente no repositório. O Cliente não muda o modo quiosque do Chromium, a configuração da TV ou o fullscreen do Painel TV.
 
 A verificação de bloqueio depende de `loginctl` com `Active=yes` e `LockedHint=no`. Se o desktop não informa esses estados, o acesso é recusado; não remova essa verificação. A sessão termina após 20 segundos sem atividade do console e libera teclas/botões mantidos.
 
