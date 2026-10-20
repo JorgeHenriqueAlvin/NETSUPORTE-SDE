@@ -1,4 +1,14 @@
-# SDE Suporte 0.8.0 — instalar e conectar
+# Começar com a versão 0.12.14
+
+1. Atualize Técnico e Clientes Windows uma primeira vez; preserve as configurações existentes.
+2. Para Raspberry, baixe o pacote ARM64 da release `raspberry-stable` e execute `install.sh` no desktop X11 como usuário normal.
+3. No Técnico, abra **Estado e logs** para conferir versões, atualizações, atendimento, eventos e diagnóstico.
+4. Novos Clientes Windows atualizam ociosos; feche o Técnico para atualizar o console. Raspberry consulta seu canal a cada hora e aplica sem atendimento.
+5. Leia [o guia da versão](docs/OPERACAO-0.12.14.md) antes do piloto. Instalar o agente não cria conectividade entre redes externas.
+
+## Instruções gerais e histórico
+
+## Instalar e conectar
 
 ## Nos computadores dos técnicos
 
@@ -63,7 +73,7 @@ O relatório de cada lote fica em `%LOCALAPPDATA%\SdeSuporte\deployments`. Não 
 Avisos globais exibem somente Aviso da TI. O nome do técnico continua no atendimento remoto e no registro de auditoria. Interface renovada e captura com envio independente dos comandos de entrada.
 
 ### Atualizações automáticas
-Após instalar esta versão uma vez, uma tarefa Windows (SYSTEM) consulta o pacote oficial do GitHub a cada 24 horas e verifica a integridade SHA256 antes de instalar. A verificação da instalação pendente acontece a cada hora e ao iniciar o Windows. As duas aplicações precisam estar fechadas; o agente normalmente fecha ao sair do Windows. Não interrompe atendimentos. A instalação mantém a identidade da máquina e a autorização do técnico. Exige acesso HTTPS ao GitHub e seus servidores de arquivos; sem internet, o aplicativo continua funcionando na rede local e tenta atualizar depois. O manifesto e os hashes são obtidos do repositório oficial por HTTPS; os executáveis ainda não têm assinatura Authenticode. Logs: pasta UpdateCache ao lado de Agent/Technician.
+Na versão atual, a tarefa Windows (SYSTEM) consulta o GitHub a cada cinco minutos e ao iniciar o Windows, verifica SHA256 e atualiza Clientes novos quando ociosos. O console precisa estar fechado; Clientes antigos ainda exigem fechamento ou atualização manual inicial. Não interrompe atendimentos. A instalação mantém a identidade da máquina e a autorização do técnico. Exige acesso HTTPS ao GitHub e seus servidores de arquivos; sem internet, o aplicativo continua funcionando na rede local e tenta atualizar depois. O manifesto e os hashes são obtidos do repositório oficial por HTTPS; os executáveis ainda não têm assinatura Authenticode. Logs: pasta UpdateCache ao lado de Agent/Technician.
 
 
 ## Versão 0.10.0 — vários monitores
@@ -102,7 +112,7 @@ uma nova consulta. A RAM e o espaço livre são valores do momento.
 
 É necessário atualizar também o Cliente Windows para 0.12.8. No Raspberry,
 instale o novo pacote ARM64 do workflow Raspberry Pi Client; a atualização Linux
-continua manual. Agentes anteriores permanecem compatíveis com o atendimento,
+passa a ser automática após instalar 0.12.14 pelo procedimento inicial. Agentes anteriores permanecem compatíveis com o atendimento,
 mas não fornecem inventário. Nome de host não confirma função de servidor:
 o tipo de sistema Windows é mostrado separadamente. Sufixo DNS não comprova
 vínculo com Active Directory. A consulta exige credencial de técnico autorizada,

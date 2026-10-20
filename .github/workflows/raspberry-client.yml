@@ -17,6 +17,19 @@ jobs:
           dotnet-version: '10.0.x'
       - run: dotnet run --project tests-operations/Operations.Tests.csproj -c Release
       - run: bash -n linux/install.sh linux/uninstall.sh linux/launch.sh linux/diagnose.sh
+      - name: Conferir sintaxe PowerShell tambem no Linux
+        shell: pwsh
+        run: |
+          Get-ChildItem scripts/*.ps1 | ForEach-Object {
+            $tokens=$null; $errors=$null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$tokens,[ref]$errors) | Out-Null
+            if($errors.Count){throw ($errors|Out-String)}
+          }
+      - name: Conferir compilacao Windows sem executar desktop
+        run: |
+          dotnet build src/SdeSuporte.Agent.csproj -c Release -p:EnableWindowsTargeting=true
+          dotnet build src/SdeSuporte.Technician.csproj -c Release -p:EnableWindowsTargeting=true
+          dotnet build tests/SdeSuporte.Tests.csproj -c Release -p:EnableWindowsTargeting=true
       - run: dotnet build linux/SdeSuporte.Linux.csproj -c Release
       - run: python3 -m unittest discover -s linux/tests -p 'test_*.py'
       - name: Verify Windows-compatible signed protocol (mock desktop)
