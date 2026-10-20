@@ -65,9 +65,9 @@ sealed class DeploymentPanel:UserControl
     public DeploymentPanel()
     {
         Dock=DockStyle.Fill;Padding=new Padding(8);
-        var help=new Label{Dock=DockStyle.Top,Height=120,Text="LOCALIZAR MÁQUINAS E IMPLANTAR O CLIENTE\nA busca usa ping e portas do Windows, sem exigir agente. Portas abertas não comprovam que a máquina é Windows.\nSelecione o método de instalação:\n • SMB + Agendador (recomendado, não exige WinRM; requer conta admin, ADMIN$ e Agendador/RPC remoto).\n • HTTPS/Kerberos (WinRM): mais rigoroso, exige WinRM habilitado nas máquinas-alvo.\nA busca pesquisa até /22 por interface; edite a faixa para outras redes internas. A senha não é gravada."};
+        var help=new Label{Dock=DockStyle.Top,Height=120,Text="INVENTÁRIO DA REDE E IMPLANTAÇÃO\nA busca usa ping e portas do Windows, sem exigir agente. Portas abertas não comprovam que a máquina é Windows.\nHostname, usuário, descrição e RAM só são exibidos quando fornecidos por um agente SDE autenticado.\nSelecione o método de instalação:\n • SMB + Agendador (recomendado, não exige WinRM; requer conta admin, ADMIN$ e Agendador/RPC remoto).\n • HTTPS/Kerberos (WinRM): mais rigoroso, exige WinRM habilitado nas máquinas-alvo.\nA busca automática permanece na sub-rede efetiva; informe outras redes internas explicitamente. A senha não é gravada."};
         var bar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=85,AutoScroll=true};
-        networks.Text=string.Join("; ",IPv4Range.LocalCidrs(true));
+        networks.Text=string.Join("; ",IPv4Range.LocalCidrs());
         var find=new Button{Text="Localizar máquinas",AutoSize=true};find.Click+=async(_,_)=>await Scan();
         var stop=new Button{Text="Parar busca",AutoSize=true};stop.Click+=(_,_)=>scan?.Cancel();
         var select=new Button{Text="Selecionar compatíveis",AutoSize=true};select.Click+=(_,_)=>{foreach(DataGridViewRow row in grid.Rows){var h=(NetworkHost)row.Tag!;row.Cells[0].Value=mode.SelectedIndex switch{0=>h.WinRmHttps,1=>h.WinRmKerberos,_=>h.Smb};}};
