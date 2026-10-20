@@ -1,4 +1,4 @@
-# Cliente SDE Suporte 0.12.19 para Raspberry Pi 4
+# Cliente SDE Suporte 0.12.20 para Raspberry Pi 4
 
 Alvo: **Raspberry Pi OS com desktop, 64 bits (ARM64), sessão X11**.
 Este projeto adiciona o papel **Cliente**: um técnico no Windows encontra e atende o Raspberry na rede interna usando o console existente. O console Técnico continua sendo Windows.

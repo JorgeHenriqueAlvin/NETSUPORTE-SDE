@@ -63,10 +63,12 @@ sealed class DeploymentPanel:UserControl
     readonly Button export=new(){Text="Exportar inventário CSV",AutoSize=true};
     CancellationTokenSource? scan;
     bool started,deploying;
-    public DeploymentPanel()
+    public DeploymentPanel(bool autoSearch=true)
     {
         Dock=DockStyle.Fill;Padding=new Padding(8);
         var help=new Label{Dock=DockStyle.Top,Height=120,Text="INVENTÁRIO DA REDE E IMPLANTAÇÃO\nA busca usa ping e portas do Windows, sem exigir agente. Portas abertas não comprovam que a máquina é Windows.\nHostname, usuário, descrição e RAM só são exibidos quando fornecidos por um agente SDE autenticado.\nSelecione o método de instalação:\n • SMB + Agendador (recomendado, não exige WinRM; requer conta admin, ADMIN$ e Agendador/RPC remoto).\n • HTTPS/Kerberos (WinRM): mais rigoroso, exige WinRM habilitado nas máquinas-alvo.\nA busca automática permanece na sub-rede efetiva; informe outras redes internas explicitamente. A senha não é gravada."};
+        string instructions=help.Text;
+        help.Text="Pesquise nas faixas internas autorizadas. Confirme os dados e selecione as máquinas para instalar ou atualizar o agente.";
         var bar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=85,AutoScroll=true};
         networks.Text=string.Join("; ",IPv4Range.LocalCidrs());
         var find=new Button{Text="Localizar máquinas",AutoSize=true};find.Click+=async(_,_)=>await Scan();
@@ -88,9 +90,29 @@ sealed class DeploymentPanel:UserControl
         preAuth.Click+=async(_,_)=>await ApplyPolicy("PreAutorizado");
         unAuth.Click+=async(_,_)=>await ApplyPolicy("Confirmacao");
         updateNow.Click+=async(_,_)=>await TriggerUpdate();
-        export.Click+=(_,_)=>ExportCsv();
+        export.Click+=(_,_)=>{try{ExportCsv();}catch(Exception e){status.Text="Não foi possível exportar: "+e.Message;MessageBox.Show(this,status.Text,"Exportar inventário",MessageBoxButtons.OK,MessageBoxIcon.Warning);}};
+        grid.Paint+=(_,e)=>{if(grid.Rows.Count==0)TextRenderer.DrawText(e.Graphics,scan is not null?"Buscando máquinas nas faixas selecionadas...":"Nenhuma máquina encontrada nesta consulta.\nConfira as faixas internas e clique em Localizar máquinas.",Font,new Rectangle(12,grid.ColumnHeadersHeight+18,Math.Max(0,grid.ClientSize.Width-24),70),Premium.Muted,TextFormatFlags.HorizontalCenter|TextFormatFlags.WordBreak);};
         Controls.Add(grid);Controls.Add(bar);Controls.Add(help);Controls.Add(status);
-        Enter+=async(_,_)=>{if(!started){started=true;await Scan();}};
+        var deploymentTools=new FlowLayoutPanel{Dock=DockStyle.Top,AutoSize=true,Visible=false,WrapContents=true,AccessibleName="Instalação e permissões"};
+        foreach(var control in new Control[]{mode,select,install,preAuth,unAuth,updateNow})deploymentTools.Controls.Add(control);
+        Controls.Add(deploymentTools);Controls.SetChildIndex(deploymentTools,1);
+        var settings=new Button{Text="Instalação e permissões ▾",AutoSize=true};
+        settings.Click+=(_,_)=>{deploymentTools.Visible=!deploymentTools.Visible;settings.Text=deploymentTools.Visible?"Ocultar instalação ▴":"Instalação e permissões ▾";};bar.Controls.Add(settings);
+        var guidance=new Button{Text="Como instalar",AutoSize=true};guidance.Click+=(_,_)=>MessageBox.Show(this,instructions,"Instalação de agentes",MessageBoxButtons.OK,MessageBoxIcon.Information);bar.Controls.Add(guidance);
+        networks.Width=220;
+        networks.AccessibleName="Faixas internas para pesquisa";
+        mode.AccessibleName="Método de instalação remota";
+        search.AccessibleName="Filtrar inventário por nome ou IP";
+        help.AutoSize=true;help.MaximumSize=new Size(1000,0);help.Padding=new Padding(12);
+        var clear=new Button{Text="Limpar filtro",AutoSize=true};clear.Click+=(_,_)=>search.Clear();bar.Controls.Add(clear);
+        Resize+=(_,_)=>{help.MaximumSize=new Size(Math.Max(260,ClientSize.Width-Padding.Horizontal),0);foreach(int index in new[]{5,6,7})grid.Columns[index].Visible=ClientSize.Width>=900;};
+        Premium.Apply(this);Premium.Primary(find);
+        var content=new Panel{Dock=DockStyle.Top,Height=560};
+        foreach(var control in Controls.Cast<Control>().ToArray())content.Controls.Add(control);
+        AutoScroll=true;Controls.Add(content);
+        Resize+=(_,_)=>content.Height=Math.Max(560,ClientSize.Height-Padding.Vertical);
+        Enter+=(_,_)=>{if(IsHandleCreated)BeginInvoke(new Action(()=>{if(!IsDisposed)AutoScrollPosition=Point.Empty;}));};
+        Enter+=async(_,_)=>{if(autoSearch&&!started){started=true;await Scan();}};
         Disposed+=(_,_)=>scan?.Cancel();
     }
     void ExportCsv()

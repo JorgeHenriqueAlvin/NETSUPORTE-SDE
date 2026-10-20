@@ -73,22 +73,37 @@ def apply_input(c):
         raise ValueError('Entrada não suportada')
 
 
+def style_window(root):
+    root.configure(background='#f4f7fa')
+    root.option_add('*Font', ('DejaVu Sans', 10))
+    root.option_add('*Background', '#f4f7fa')
+    root.option_add('*Foreground', '#182b42')
+    root.option_add('*Button.Background', '#ffffff')
+    root.option_add('*Button.activeBackground', '#e6f2f4')
+    root.option_add('*Button.padX', 12)
+    root.option_add('*Button.padY', 8)
+    root.option_add('*Button.highlightColor', '#00727d')
+    root.option_add('*Entry.Background', '#ffffff')
+    root.option_add('*Text.Background', '#ffffff')
+
+
 def ui():
     import tkinter as tk
     from tkinter.scrolledtext import ScrolledText
     from PIL import Image, ImageTk
-    root=tk.Tk(); root.title('SDE Suporte — Cliente'); root.geometry('540x420')
+    root=tk.Tk(); root.title('SDE Suporte — Cliente'); root.geometry('600x480'); root.minsize(420,360); style_window(root)
     root.protocol('WM_DELETE_WINDOW',root.iconify)
-    label=tk.Label(root,text='SDE Suporte disponível',bg='#0c2844',fg='white',pady=12); label.pack(fill='x')
-    history=ScrolledText(root,state='disabled',wrap='word'); history.pack(fill='both',expand=True)
+    label=tk.Label(root,text='SDE Suporte disponível',bg='#143151',fg='white',pady=16); label.pack(fill='x')
+    history=ScrolledText(root,state='disabled',wrap='word',borderwidth=1,padx=12,pady=12); history.pack(fill='both',expand=True,padx=12,pady=12)
     image_label=tk.Label(root); image_label.pack()
-    entry=tk.Entry(root); entry.pack(fill='x')
+    tk.Label(root,text='Mensagem para o técnico',anchor='w').pack(fill='x',padx=12)
+    entry=tk.Entry(root); entry.pack(fill='x',padx=12,pady=6)
     active=False
     def send():
         value=entry.get().strip()
         if active and value:
             print(json.dumps({'text':value[:2000]}),flush=True); entry.delete(0,'end')
-    tk.Button(root,text='Enviar mensagem ao técnico',command=send).pack()
+    send_button=tk.Button(root,text='Enviar mensagem ao técnico',command=send,bg='#00727d',fg='white',activebackground='#005b66',activeforeground='white',state='disabled'); send_button.pack(padx=12,pady=(0,12),fill='x')
     entry.bind('<Return>',lambda _:send())
     pending=queue.Queue()
     def read():
@@ -104,6 +119,7 @@ def ui():
             if kind=='quit': root.destroy(); return
             if kind=='session':
                 active=bool(c.get('name')); label.config(text=('Conectado: '+c['name']) if active else 'SDE Suporte disponível')
+                send_button.config(state='normal' if active else 'disabled')
                 root.attributes('-topmost',active)
                 if active: root.deiconify()
                 else:
@@ -144,7 +160,7 @@ def main():
         image.convert('RGB').save(sys.stdout.buffer,format='JPEG',quality=60)
     elif command=='consent':
         import tkinter as tk
-        root=tk.Tk(); root.title('SDE Suporte — autorização'); root.attributes('-topmost',True)
+        root=tk.Tk(); root.title('SDE Suporte — autorização'); root.attributes('-topmost',True); style_window(root)
         approved=False
         def yes():
             nonlocal approved

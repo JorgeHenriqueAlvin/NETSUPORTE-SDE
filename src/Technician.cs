@@ -32,6 +32,7 @@ sealed class Technician:Form
         var values=new[]{a.Alias,a.Description,a.Sector,a.Location};var labels=new[]{"Apelido","Descrição administrativa","Setor","Local"};var boxes=new List<TextBox>();
         for(int i=0;i<4;i++){panel.Controls.Add(new Label{Text=labels[i],AutoSize=true},0,i);var box=new TextBox{Text=values[i],Width=300,MaxLength=256};boxes.Add(box);panel.Controls.Add(box,1,i);}
         var save=new Button{Text="Salvar",DialogResult=DialogResult.OK};panel.Controls.Add(save,1,4);dialog.Controls.Add(panel);dialog.AcceptButton=save;
+        Premium.Apply(dialog);Premium.Primary(save);dialog.AutoScaleMode=AutoScaleMode.Dpi;
         if(dialog.ShowDialog(this)!=DialogResult.OK)return;
         metadata[d.Id]=new(boxes[0].Text.Trim(),boxes[1].Text.Trim(),boxes[2].Text.Trim(),boxes[3].Text.Trim());
         Json.Write(MetadataPath,metadata);Filter(search.Text);
@@ -89,15 +90,16 @@ sealed class Technician:Form
     bool loading,closing;
     DateTime lastMove;
     readonly HashSet<int> held=[];
-    public Technician(TechnicianIdentity? injectedIdentity=null)
+    public Technician(TechnicianIdentity? injectedIdentity=null,bool startBackgroundServices=true,string? dataDirectory=null)
     {
+        if(dataDirectory is not null)folder=Path.GetFullPath(dataDirectory);
         Directory.CreateDirectory(folder);identity=injectedIdentity??LoadIdentity();if(injectedIdentity is null)LoadTeamCredential();
         Text=$"SDE Suporte — {identity.Public.Name}";Width=1360;Height=850;MinimumSize=new(900,560);
         Font=new Font("Segoe UI",10);BackColor=Color.White;DoubleBuffered=true;KeyPreview=false;
         var sidebar=new Panel{Dock=DockStyle.Left,Width=330,Padding=new Padding(8)};
         sidebar.Controls.Add(list);sidebar.Controls.Add(onlyOnline);sidebar.Controls.Add(search);sidebar.Controls.Add(scanStatus);sidebar.Controls.Add(machineCount);
         var toolbar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=104,Padding=new Padding(10),AutoScroll=true};
-        Button Add(string label,Func<Task> action){var b=new Button{Text=label,AutoSize=true};b.Click+=async(_,_)=>await Safe(action);toolbar.Controls.Add(b);return b;}
+        Button Add(string label,Func<Task> action){var b=new Button{Text=label,AutoSize=true};b.Click+=async(_,_)=>{if(!b.Enabled)return;b.Enabled=false;try{await Safe(action);}finally{if(!b.IsDisposed)b.Enabled=true;}};toolbar.Controls.Add(b);return b;}
         Add("Buscar agentes instalados",async()=>{search.Clear();await SearchAgents();});
         Add("Varredura de IP",ChooseScan);
         Add("Configurações da máquina",MachineDetails);
@@ -110,19 +112,27 @@ sealed class Technician:Form
         void Advanced(string label,Action action)=>advanced.Items.Add(label,null,async(_,_)=>await Safe(()=>{action();return Task.CompletedTask;}));
         Advanced("Importar equipe antiga (.sdeteam)",ImportTeam);Advanced("Exportar identificação antiga",ExportIdentity);
         Advanced("Importar computador antigo",ImportDevices);Advanced("Alterar IP do computador",EditAddress);
-        Advanced("Remover da lista",()=>{if(list.SelectedItem is Device d){devices.Remove(d);SaveDevices();Filter(search.Text);}});
+        Advanced("Remover da lista",()=>{if(list.SelectedItem is Device d&&MessageBox.Show(this,$"Remover {MachineNames.Display(d,observations.GetValueOrDefault(d.Id))} da lista? O agente continuará instalado.","Remover máquina",MessageBoxButtons.YesNo,MessageBoxIcon.Question)==DialogResult.Yes){devices.Remove(d);SaveDevices();Filter(search.Text);}});
         Add("Opções avançadas",()=>{advanced.Show(Cursor.Position);return Task.CompletedTask;});
+        int sessionStart=toolbar.Controls.Count;
         connect.Click+=async(_,_)=>await Safe(Connect);toolbar.Controls.Add(connect);
         Add("Encerrar",Disconnect);Add("Verificar conexão",Probe);
         toolbar.Controls.Add(text);Add("Enviar texto",async()=>{await Input(new("text",Text:text.Text));text.Clear();});
         toolbar.Controls.Add(autoFullScreen);Add("Tela cheia (F11)",()=>{ToggleFullScreen();return Task.CompletedTask;});
+        var sessionBar=new FlowLayoutPanel{Dock=DockStyle.Top,AutoSize=true,WrapContents=true,Padding=new Padding(8),AccessibleName="Ações do atendimento remoto"};
+        foreach(var control in toolbar.Controls.Cast<Control>().Skip(sessionStart).ToArray())sessionBar.Controls.Add(control);
+        var additionalActions=new FlowLayoutPanel{Dock=DockStyle.Top,Visible=false,AutoSize=true,WrapContents=true,AccessibleName="Mais ações de máquinas e equipe"};
+        foreach(var control in toolbar.Controls.Cast<Control>().Skip(2).ToArray())additionalActions.Controls.Add(control);
+        var moreActions=new Button{Text="Mais ações ▾",AutoSize=true,AccessibleName="Exibir ações de máquinas, Raspberry e equipe"};
+        moreActions.Click+=(_,_)=>{additionalActions.Visible=!additionalActions.Visible;moreActions.Text=additionalActions.Visible?"Menos ações ▴":"Mais ações ▾";};toolbar.Controls.Add(moreActions);
         var monitorBar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=52,Padding=new Padding(8)};
         monitorBar.Controls.Add(new Label{Text="Monitor do cliente",AutoSize=true,Margin=new Padding(0,7,10,0)});monitorBar.Controls.Add(monitorPicker);
         monitorPicker.SelectedIndexChanged+=(_,_)=>{if(!updatingMonitors&&monitorPicker.SelectedItem is RemoteMonitor m){selectedMonitor=m.Id;screen.Focus();}};
-        remotePage.Controls.Add(screen);remotePage.Controls.Add(monitorBar);chatPage.Controls.Add(chatPanel);
+        remotePage.Controls.Add(screen);remotePage.Controls.Add(monitorBar);remotePage.Controls.Add(sessionBar);chatPage.Controls.Add(chatPanel);
+        screen.Paint+=(_,e)=>{if(screen.Image is null)TextRenderer.DrawText(e.Graphics,"Atendimento remoto\n\nSelecione uma máquina e clique em Conectar.\nA imagem aparecerá após a autorização do agente.",Font,Rectangle.Inflate(screen.ClientRectangle,-24,-24),Color.FromArgb(211,224,236),TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter|TextFormatFlags.WordBreak);};
         var operationsPage=new TabPage("Estado e logs");
         operationsPage.Controls.Add(new OperationsPanel(identity,()=>devices.ToArray(),IsOnline,()=>authorities.Select(a=>a.Id).ToArray(),lifetime.Token){Dock=DockStyle.Fill});
-        var deploymentPage=new TabPage("Implantar Clientes");deploymentPage.Controls.Add(new DeploymentPanel());
+        var deploymentPage=new TabPage("Inventário e instalação");deploymentPage.Controls.Add(new DeploymentPanel(startBackgroundServices));
         tabs.TabPages.AddRange([remotePage,chatPage,noticesPage,deploymentPage,operationsPage,UpdatesPage()]);
         var noticeHeader=new Label{Dock=DockStyle.Top,Height=100,Text="Marque os clientes ou use Selecionar todos. Envie texto, foto ou os dois.\nO funcionário verá apenas “Aviso da TI”, sem o nome do remetente. Entrega não significa leitura.",Padding=new Padding(8)};
         noticesPage.Padding=new Padding(12);noticesPage.Controls.Add(noticeResults);noticesPage.Controls.Add(noticeTargets);noticesPage.Controls.Add(sendNotice);noticesPage.Controls.Add(noticeText);noticesPage.Controls.Add(noticePreview);
@@ -140,19 +150,30 @@ sealed class Technician:Form
         var targetColumn=new Panel{Dock=DockStyle.Left,Width=275};noticeTargets.Dock=DockStyle.Fill;targetColumn.Controls.Add(noticeTargets);targetColumn.Controls.Add(targetTools);noticesPage.Controls.Add(photoBar);noticesPage.Controls.Add(noticeHeader);
         var noticeContent=new Panel{Dock=DockStyle.Fill};foreach(Control item in noticesPage.Controls.Cast<Control>().ToArray())noticeContent.Controls.Add(item);
         noticesPage.Controls.Add(noticeContent);noticesPage.Controls.Add(targetColumn);
+        var noticeLayout=new TableLayoutPanel{Dock=DockStyle.Top,Height=650,ColumnCount=2,RowCount=1,Margin=Padding.Empty};
+        noticeLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,30));noticeLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,70));
+        targetColumn.Dock=DockStyle.Fill;noticeContent.Dock=DockStyle.Fill;
+        noticeLayout.Controls.Add(targetColumn,0,0);noticeLayout.Controls.Add(noticeContent,1,0);
+        noticesPage.AutoScroll=true;noticesPage.Controls.Add(noticeLayout);
         sendNotice.Click+=async(_,_)=>await Safe(Broadcast);
         chatPanel.SetAvailable(false);chatPanel.SetTitle("Conecte a uma máquina para conversar com o funcionário.");
         chatPanel.Send=SendChat;
         chatClock.Tick+=async(_,_)=>{if(pollingChat||client?.Session is null||!chatAvailable)return;pollingChat=true;try{await PollChat();}catch(Exception e){if(!closing)chatPanel.SetTitle("Chat indisponível: "+e.Message);}finally{pollingChat=false;}};
-        Controls.Add(tabs);Controls.Add(sidebar);Controls.Add(toolbar);Controls.Add(status);
-        Premium.Apply(this);connect.BackColor=Color.FromArgb(45,105,230);connect.ForeColor=Color.White;
+        var pageHeading=new Label{Dock=DockStyle.Top,Height=62,Padding=new Padding(16,8,16,4),Text="Atendimento remoto\nSelecione uma máquina da equipe para iniciar.",Font=new Font("Segoe UI Semibold",11)};
+        void UpdateHeading(){sidebar.Visible=tabs.SelectedTab==remotePage||tabs.SelectedTab==chatPage;pageHeading.Text=(tabs.SelectedTab?.Text??"Atendimento")+"\n"+(tabs.SelectedTab==remotePage?"Selecione uma máquina e conecte para iniciar o atendimento.":tabs.SelectedTab==deploymentPage?"Localize máquinas nas redes autorizadas e acompanhe a instalação.":tabs.SelectedTab==chatPage?"Converse com o funcionário durante o atendimento.":tabs.SelectedTab==noticesPage?"Selecione os destinatários e prepare um aviso da TI.":"Consulte informações e acompanhe o suporte da equipe.");}
+        tabs.SelectedIndexChanged+=(_,_)=>UpdateHeading();UpdateHeading();
+        Controls.Add(tabs);Controls.Add(pageHeading);Controls.Add(sidebar);Controls.Add(additionalActions);Controls.Add(toolbar);Controls.Add(status);
+        Premium.Apply(this);Premium.Primary(connect);Premium.Primary(sendNotice);
         status.Padding=new Padding(12,5,0,0);status.BackColor=Color.FromArgb(226,233,244);
         list.BorderStyle=BorderStyle.None;search.Margin=new Padding(8);
+        var clearSearch=new Button{Text="Limpar pesquisa",Dock=DockStyle.Top,Height=36,AccessibleName="Limpar pesquisa de máquinas"};
+        clearSearch.Click+=(_,_)=>{search.Clear();onlyOnline.Checked=false;search.Focus();};sidebar.Controls.Add(clearSearch);sidebar.Controls.SetChildIndex(clearSearch,sidebar.Controls.GetChildIndex(search));
+        Premium.Apply(clearSearch);
         tabs.ItemSize=new Size(0,40);tabs.SizeMode=TabSizeMode.Normal;tabs.Multiline=true;
         tabs.AccessibleName="Áreas de atendimento";search.AccessibleName="Pesquisar máquinas";
         onlyOnline.AccessibleName="Mostrar somente máquinas conectadas";list.AccessibleName="Máquinas da equipe";
         list.SelectedIndexChanged+=(_,_)=>list.AccessibleDescription=list.SelectedItem is Device selected?MachineLabel(selected):"Nenhuma máquina selecionada.";
-        tabs.DrawMode=TabDrawMode.OwnerDrawFixed;tabs.DrawItem+=(_,e)=>{var selected=e.Index==tabs.SelectedIndex;using var fill=new SolidBrush(selected?Color.White:Color.FromArgb(230,236,246));e.Graphics.FillRectangle(fill,e.Bounds);TextRenderer.DrawText(e.Graphics,tabs.TabPages[e.Index].Text,Font,e.Bounds,selected?Color.FromArgb(45,105,230):Color.FromArgb(65,81,108),TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);if(selected){using var line=new Pen(Color.FromArgb(45,105,230),3);e.Graphics.DrawLine(line,e.Bounds.Left,e.Bounds.Bottom-2,e.Bounds.Right,e.Bounds.Bottom-2);}};
+        tabs.DrawMode=TabDrawMode.OwnerDrawFixed;tabs.DrawItem+=(_,e)=>{var selected=e.Index==tabs.SelectedIndex;using var fill=new SolidBrush(selected?Color.White:Premium.Canvas);e.Graphics.FillRectangle(fill,e.Bounds);TextRenderer.DrawText(e.Graphics,tabs.TabPages[e.Index].Text,Font,e.Bounds,selected?Premium.Accent:Premium.Muted,TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);if(selected){using var line=new Pen(Premium.Accent,3);e.Graphics.DrawLine(line,e.Bounds.Left,e.Bounds.Bottom-2,e.Bounds.Right,e.Bounds.Bottom-2);}if(selected&&tabs.Focused)ControlPaint.DrawFocusRectangle(e.Graphics,Rectangle.Inflate(e.Bounds,-4,-5));};
         var brand=new Label{Text="SDE  /  SUPORTE\nCentral de atendimento",Dock=DockStyle.Top,Height=70,Padding=new Padding(10),Font=new Font("Segoe UI Semibold",13),ForeColor=Color.White,BackColor=Color.FromArgb(18,30,50)};sidebar.Controls.Add(brand);
         if(File.Exists(MetadataPath))metadata=Json.Read<Dictionary<string,MachineMetadata>>(MetadataPath);
         if(File.Exists(ObservationsPath))observations=Json.Read<Dictionary<string,MachineObservation>>(ObservationsPath);
@@ -171,22 +192,31 @@ sealed class Technician:Form
         }
         Resize+=(_,_)=>AdaptLayout();DpiChanged+=(_,_)=>AdaptLayout();AdaptLayout();
         list.DrawItem+=(_,e)=>{
-            if(e.Index<0)return;e.DrawBackground();var d=(Device)list.Items[e.Index];
+            if(e.Index<0)return;var d=(Device)list.Items[e.Index];
             bool available=online.TryGetValue(d.Id,out var seen)&&DateTimeOffset.UtcNow-seen<TimeSpan.FromSeconds(45);
-            var color=(e.State&DrawItemState.Selected)!=0?SystemColors.HighlightText:Color.FromArgb(25,45,65);
-            TextRenderer.DrawText(e.Graphics,MachineLabel(d)+"\n"+(available?"Agente conectado":"Agente sem comunicação recente"),Font,new Rectangle(e.Bounds.X+5,e.Bounds.Y+4,e.Bounds.Width-10,e.Bounds.Height-8),color,TextFormatFlags.EndEllipsis|TextFormatFlags.WordBreak);e.DrawFocusRectangle();
+            bool selected=(e.State&DrawItemState.Selected)!=0;
+            using var background=new SolidBrush(selected?Color.FromArgb(224,240,243):Color.White);
+            e.Graphics.FillRectangle(background,e.Bounds);
+            if(selected){using var stripe=new SolidBrush(Premium.Accent);e.Graphics.FillRectangle(stripe,e.Bounds.X,e.Bounds.Y,4,e.Bounds.Height);}
+            using var heading=new Font("Segoe UI Semibold",11);
+            var lines=MachineLabel(d).Split('\n');
+            TextRenderer.DrawText(e.Graphics,lines[0],heading,new Rectangle(e.Bounds.X+14,e.Bounds.Y+12,e.Bounds.Width-28,26),Premium.Ink,TextFormatFlags.EndEllipsis|TextFormatFlags.SingleLine);
+            TextRenderer.DrawText(e.Graphics,string.Join("\n",lines.Skip(1)),Font,new Rectangle(e.Bounds.X+14,e.Bounds.Y+43,e.Bounds.Width-28,e.Bounds.Height-78),Premium.Muted,TextFormatFlags.EndEllipsis|TextFormatFlags.WordBreak);
+            TextRenderer.DrawText(e.Graphics,available?"● Comunicação recente":"○ Sem comunicação recente",Font,new Rectangle(e.Bounds.X+14,e.Bounds.Bottom-30,e.Bounds.Width-28,24),available?Premium.Accent:Premium.Muted,TextFormatFlags.EndEllipsis|TextFormatFlags.SingleLine);
+            using var separator=new Pen(Premium.Border);e.Graphics.DrawLine(separator,e.Bounds.Left,e.Bounds.Bottom-1,e.Bounds.Right,e.Bounds.Bottom-1);e.DrawFocusRectangle();
         };
         Filter("");status.Text=$"Técnico: {identity.Public.Name} | Instale o agente nos funcionários. As máquinas da equipe aparecem automaticamente.";
         Shown+=async(_,_)=>{
+            if(!startBackgroundServices)return;
             try{discovery=new ConsoleDiscovery(identity,()=>authorities.Select(a=>a.Id).ToArray(),QueueDiscovered);}catch(Exception e){scanStatus.Text="Descoberta UDP indisponível: "+e.Message;}
             await Safe(SearchAgents);
         };
-        scanClock.Tick+=async(_,_)=>{if(scanning is null&&!closing)await Safe(ScanLocal);};scanClock.Start();
+        scanClock.Tick+=async(_,_)=>{if(scanning is null&&!closing)await Safe(ScanLocal);};if(startBackgroundServices)scanClock.Start();
         presence.Tick+=(_,_)=>{
             Filter(search.Text);if(dirty){SaveDevices();dirty=false;}
             if(observationsDirty){try{Json.Write(ObservationsPath,observations);observationsDirty=false;}catch{}}
             foreach(var device in devices.ToArray())if(!nextProbe.TryGetValue(device.Id,out var next)||DateTimeOffset.UtcNow>=next)Discovered(device);
-        };presence.Start();
+        };if(startBackgroundServices)presence.Start();
         timer.Tick+=async(_,_)=>{if(!loading&&client?.Session is not null&&(fullScreen is not null||tabs.SelectedTab==remotePage))await Safe(Frame);};
         screen.MouseDown+=async(_,e)=>{screen.Focus();var p=Map(e.X,e.Y);if(p is not null)await Safe(()=>Input(new("down",p.Value.X,p.Value.Y,Key:e.Button==MouseButtons.Right?2:1)));};
         screen.MouseUp+=async(_,e)=>{var p=Map(e.X,e.Y,true);if(p is not null)await Safe(()=>Input(new("up",p.Value.X,p.Value.Y,Key:e.Button==MouseButtons.Right?2:1)));};
@@ -204,11 +234,12 @@ sealed class Technician:Form
         var title=new Label{Dock=DockStyle.Top,Height=65,Text="Seu suporte sempre atualizado",Font=new Font("Segoe UI Semibold",19),Padding=new Padding(12)};
         var installed=System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3)??"desconhecida";
         var description=new Label{Dock=DockStyle.Top,Height=160,Padding=new Padding(12),Text=$"Versão instalada: {installed}\n\nA atualização automática é habilitada pelo instalador. Novas versões são verificadas no boot e a cada cinco minutos no GitHub, com verificação de integridade.\n\nClientes novos atualizam quando ficam sem atendimento e reabrem na sessão do funcionário. Feche o Técnico para atualizar o console. Veja o resultado por máquina na aba Estado e logs. A máquina precisa de acesso à internet para baixar as versões."};
-        var result=new TextBox{Dock=DockStyle.Fill,Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical};
+        var result=new TextBox{Dock=DockStyle.Fill,Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical,Text="Selecione Verificar nova versão para consultar as atualizações disponíveis.",AccessibleName="Resultado da atualização"};
         var check=new Button{Dock=DockStyle.Top,Height=45,Text="Verificar nova versão"};
         check.Click+=async(_,_)=>{check.Enabled=false;try{using var http=new HttpClient{Timeout=TimeSpan.FromSeconds(20)};using var data=JsonDocument.Parse(await http.GetStringAsync("https://github.com/JorgeHenriqueAlvin/NETSUPORTE-SDE/releases/latest/download/update.json"));string version=data.RootElement.GetProperty("version").GetString()??"";var current=System.Reflection.Assembly.GetExecutingAssembly().GetName().Version??new Version(0,0);result.Text=Version.TryParse(version,out var next)&&next>current?$"Versão {version} disponível. O atualizador fará a instalação automaticamente quando os aplicativos estiverem fechados.":$"Você está usando a versão mais recente ({current.ToString(3)}).";}catch(Exception){result.Text="Não foi possível consultar o GitHub. O suporte na rede local continua disponível; o atualizador tentará novamente depois.";}finally{if(!check.IsDisposed)check.Enabled=true;}};
         var recover=new Button{Dock=DockStyle.Top,Height=45,Text="Executar atualizador confiável / recuperar pacote"};
         recover.Click+=async(_,_)=>{
+            if(!recover.Enabled)return;recover.Enabled=false;result.Text="Solicitando atualização. Aguarde...";
             try{
                 var start=new System.Diagnostics.ProcessStartInfo("schtasks.exe"){UseShellExecute=false,CreateNoWindow=true};
                 foreach(var arg in new[]{"/Run","/TN","SDE-Suporte-Atualizacao"})start.ArgumentList.Add(arg);
@@ -226,7 +257,8 @@ sealed class Technician:Form
                 }
                 if(result.IsDisposed)return;
                 result.Text="Solicitação enviada à tarefa de atualização registrada. Feche o Técnico para permitir a instalação. Consulte o log do atualizador para confirmar o resultado. O atualizador também verifica e recupera o pacote Cliente danificado da mesma versão. Veja o resultado na aba Estado e logs.";
-            }catch(Exception e){result.Text="Não foi possível iniciar o atualizador: "+e.Message;}
+            }catch(Exception e){if(!result.IsDisposed)result.Text="Não foi possível iniciar o atualizador: "+e.Message;}
+            finally{if(!recover.IsDisposed)recover.Enabled=true;}
         };
         var localState=new Button{Dock=DockStyle.Top,Height=45,Text="Ver resultado local do atualizador"};
         localState.Click+=(_,_)=>{
@@ -234,7 +266,9 @@ sealed class Technician:Form
             var state=OperationalData.UpdateStatus(root,"Technician");
             result.Text=state is {} data?JsonSerializer.Serialize(data,new JsonSerializerOptions{WriteIndented=true}):"Ainda não existe resultado local. Execute o atualizador e consulte novamente.";
         };
-        page.Controls.Add(result);page.Controls.Add(localState);page.Controls.Add(recover);page.Controls.Add(check);page.Controls.Add(description);page.Controls.Add(title);return page;
+        var content=new Panel{Dock=DockStyle.Top,Height=560};
+        content.Controls.Add(result);content.Controls.Add(localState);content.Controls.Add(recover);content.Controls.Add(check);content.Controls.Add(description);content.Controls.Add(title);
+        page.AutoScroll=true;page.Controls.Add(content);return page;
     }
     void LoadTeamCredential()
     {
@@ -457,6 +491,7 @@ sealed class Technician:Form
         }
         list.Invalidate();
         machineCount.Text=$"{devices.Count(IsOnline)} conectados • {devices.Count} salvos • {visible.Length} exibidos";
+        list.AccessibleDescription=visible.Length==0?"Nenhuma máquina corresponde aos filtros. Limpe a pesquisa ou busque agentes instalados.":$"{visible.Length} máquinas disponíveis na lista.";
     }
     protected override bool ProcessCmdKey(ref Message msg,Keys keyData)
     {
@@ -640,7 +675,8 @@ sealed class NameDialog:Form
     {
         using var form=new NameDialog{Text=title,Width=500,Height=190,StartPosition=FormStartPosition.CenterScreen,FormBorderStyle=FormBorderStyle.FixedDialog,MinimizeBox=false,MaximizeBox=false};
         var input=new TextBox{Dock=DockStyle.Top,Text=initial,UseSystemPasswordChar=secret};var ok=new Button{Text="Confirmar",DialogResult=DialogResult.OK,Dock=DockStyle.Bottom,Height=36};
-        form.Controls.Add(input);form.Controls.Add(new Label{Dock=DockStyle.Top,Text=label,Height=36});form.Controls.Add(ok);form.AcceptButton=ok;
+        form.Controls.Add(input);form.Controls.Add(new Label{Dock=DockStyle.Top,Text=label,Height=48});form.Controls.Add(ok);form.AcceptButton=ok;
+        form.Padding=new Padding(16);form.Height=230;input.AccessibleName=label;Premium.Apply(form);Premium.Primary(ok);
         return form.ShowDialog()==DialogResult.OK&&!string.IsNullOrWhiteSpace(input.Text)?input.Text.Trim():null;
     }
 }

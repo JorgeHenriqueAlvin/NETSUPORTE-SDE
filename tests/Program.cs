@@ -47,6 +47,7 @@ static class Tests
                     Check(Json.Read<Dictionary<string,MachineMetadata>>(persisted)[moved.Id]==administrative[original.Id],"metadados persistem por ID após troca de IP");
                 }finally{Directory.Delete(scratch,true);}return 0;
             }
+            if(args[0]=="ui"){MessagingTests();return 0;}
             if(args[0] is "prepare" or "prepare-team")
             {
                 Directory.CreateDirectory(args[1]);
@@ -126,7 +127,7 @@ static class Tests
                 Check(sent=="Resposta do funcionário","interface permite resposta do funcionario sem console tecnico");
                 using(var notice=new EmployeeAnnouncements()){notice.Receive(new(0,"NOME PRIVADO DO TECNICO","Aviso de teste",DateTimeOffset.UtcNow));var rendered=notice.HistoryText;Check(rendered.Contains("AVISO DA TI")&&rendered.Contains("Aviso de teste")&&!rendered.Contains("NOME PRIVADO"),"aviso global nao exibe nome do tecnico");}
                 using(var previewIdentity=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Técnico de teste"))
-                using(var console=new Technician(previewIdentity))
+                using(var console=new Technician(previewIdentity,false,Path.Combine(Path.GetTempPath(),"SDE-UI-"+Guid.NewGuid().ToString("N"))))
                 {
                     console.Show();Application.DoEvents();
                     var flags=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
@@ -178,7 +179,18 @@ static class Tests
                     using var bitmap=new Bitmap(console.Width,console.Height);console.DrawToBitmap(bitmap,new Rectangle(Point.Empty,bitmap.Size));
                     string qa=Path.Combine(Environment.GetEnvironmentVariable("RUNNER_TEMP")??Path.GetTempPath(),"SDE-Visual-QA");Directory.CreateDirectory(qa);bitmap.Save(Path.Combine(qa,"console.png"));
                     var pages=console.Controls.OfType<TabControl>().Single().TabPages.Cast<TabPage>().Select(p=>p.Text).ToArray();
-                    Check(new[]{"Tela remota","Chat do atendimento","Avisos globais","Implantar Clientes","Estado e logs","Atualizações"}.All(pages.Contains),"console preserva abas de suporte e inclui estado e logs");
+                    Check(new[]{"Tela remota","Chat do atendimento","Avisos globais","Inventário e instalação","Estado e logs","Atualizações"}.All(pages.Contains),"console preserva areas de suporte e inclui inventario");
+                    foreach(var size in new[]{new Size(900,560),new Size(1024,768),new Size(1360,850)})
+                    {
+                        console.Size=size;
+                        foreach(TabPage page in tabs.TabPages)
+                        {
+                            tabs.SelectedTab=page;Application.DoEvents();
+                            Check(tabs.Width>=400&&tabs.Height>160,$"area util preservada: {page.Text} em {size.Width}x{size.Height}");
+                            using var capture=new Bitmap(console.Width,console.Height);console.DrawToBitmap(capture,new Rectangle(Point.Empty,capture.Size));
+                            capture.Save(Path.Combine(qa,$"console-{size.Width}-{tabs.SelectedIndex}.png"));
+                        }
+                    }
                 }
                 owner.Close();
             }catch(Exception e){error=e;}
