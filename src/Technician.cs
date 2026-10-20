@@ -214,7 +214,16 @@ sealed class Technician:Form
                 foreach(var arg in new[]{"/Run","/TN","SDE-Suporte-Atualizacao"})start.ArgumentList.Add(arg);
                 using var process=System.Diagnostics.Process.Start(start)??throw new IOException("Não foi possível abrir o Agendador.");
                 await process.WaitForExitAsync();
-                if(process.ExitCode!=0)throw new IOException("A tarefa recusou a solicitação. Verifique se existe e se esta conta pode executá-la.");
+                if(process.ExitCode!=0){
+                    var script=Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,"..","scripts","Update-Sde.ps1"));
+                    if(!File.Exists(script))throw new IOException("A tarefa não existe e o script de reparo não foi encontrado.");
+                    var repair=new System.Diagnostics.ProcessStartInfo("powershell.exe"){UseShellExecute=true,Verb="runas",Arguments=$"-NoProfile -ExecutionPolicy Bypass -File \"{script}\" -Register"};
+                    using var elevated=System.Diagnostics.Process.Start(repair)??throw new IOException("Não foi possível solicitar elevação para registrar o atualizador.");
+                    await elevated.WaitForExitAsync();
+                    if(elevated.ExitCode!=0)throw new IOException("O registro do atualizador foi recusado. Execute o Técnico como administrador uma vez.");
+                    result.Text="Atualizador reparado. Feche o Técnico e use este botão novamente para iniciar a atualização.";
+                    return;
+                }
                 if(result.IsDisposed)return;
                 result.Text="Solicitação enviada à tarefa de atualização registrada. Feche o Técnico para permitir a instalação. Consulte o log do atualizador para confirmar o resultado. O atualizador também verifica e recupera o pacote Cliente danificado da mesma versão. Veja o resultado na aba Estado e logs.";
             }catch(Exception e){result.Text="Não foi possível iniciar o atualizador: "+e.Message;}
