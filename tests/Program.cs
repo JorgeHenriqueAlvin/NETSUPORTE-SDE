@@ -169,7 +169,8 @@ static class Tests
                     Descendants(console).OfType<Button>().Single(b=>b.Text=="Limpar seleção").PerformClick();Check(targets.CheckedItems.Count==0,"limpar selecao desmarca todos os destinatarios");
                     using var bitmap=new Bitmap(console.Width,console.Height);console.DrawToBitmap(bitmap,new Rectangle(Point.Empty,bitmap.Size));
                     string qa=Path.Combine(Environment.GetEnvironmentVariable("RUNNER_TEMP")??Path.GetTempPath(),"SDE-Visual-QA");Directory.CreateDirectory(qa);bitmap.Save(Path.Combine(qa,"console.png"));
-                    Check(console.Controls.OfType<TabControl>().Single().TabPages.Count==5,"console inclui atualizacoes e abas de suporte");
+                    var pages=console.Controls.OfType<TabControl>().Single().TabPages.Cast<TabPage>().Select(p=>p.Text).ToArray();
+                    Check(new[]{"Tela remota","Chat do atendimento","Avisos globais","Implantar Clientes","Estado e logs","Atualizações"}.All(pages.Contains),"console preserva abas de suporte e inclui estado e logs");
                 }
                 owner.Close();
             }catch(Exception e){error=e;}
