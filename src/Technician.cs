@@ -14,7 +14,8 @@ sealed class Technician:Form
     {
         var a=Admin(d);var o=observations.GetValueOrDefault(d.Id);
         string hostname=o?.Hostname??"Nome não identificado";
-        return $"{hostname} • Apelido: {a.Alias}\n{(a.Description.Length>0?a.Description:(string.IsNullOrEmpty(o?.Description)?"Descrição não disponível":o.Description))}\n{(a.Sector.Length>0?a.Sector:d.Sector)} • {a.Location} • {d.Host}\n{(string.IsNullOrEmpty(o?.OS)?"Sistema não identificado":o.OS)} • Agente: {o?.AgentVersion??"não informado"} • Última comunicação: {o?.Seen.ToLocalTime().ToString("g")??"não registrada"}";
+        var last=online.TryGetValue(d.Id,out var live)?live:o?.Seen;
+        return $"{hostname} • Apelido: {a.Alias}\n{(a.Description.Length>0?a.Description:(string.IsNullOrEmpty(o?.Description)?"Descrição não disponível":o.Description))}\n{(a.Sector.Length>0?a.Sector:d.Sector)} • {a.Location} • {d.Host}\n{(string.IsNullOrEmpty(o?.OS)?"Sistema não identificado":o.OS)} • Agente: {o?.AgentVersion??"não informado"} • Última comunicação: {last?.ToLocalTime().ToString("g")??"não registrada"}";
     }
     void EditMetadata()
     {

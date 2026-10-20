@@ -65,7 +65,7 @@ sealed class DeploymentPanel:UserControl
     public DeploymentPanel()
     {
         Dock=DockStyle.Fill;Padding=new Padding(8);
-        var help=new Label{Dock=DockStyle.Top,Height=120,Text="LOCALIZAR MÁQUINAS E IMPLANTAR O CLIENTE\nA busca usa ping e portas do Windows, sem exigir agente. Portas abertas não comprovam que a máquina é Windows.\nSelecione o método de instalação:\n • SMB + Agendador (recomendado, não exige WinRM; requer apenas conta admin + porta 445).\n • HTTPS/Kerberos (WinRM): mais rigoroso, exige WinRM habilitado nas máquinas-alvo.\nA busca pesquisa até /22 por interface; edite a faixa para outras redes internas. A senha não é gravada."};
+        var help=new Label{Dock=DockStyle.Top,Height=120,Text="LOCALIZAR MÁQUINAS E IMPLANTAR O CLIENTE\nA busca usa ping e portas do Windows, sem exigir agente. Portas abertas não comprovam que a máquina é Windows.\nSelecione o método de instalação:\n • SMB + Agendador (recomendado, não exige WinRM; requer conta admin, ADMIN$ e Agendador/RPC remoto).\n • HTTPS/Kerberos (WinRM): mais rigoroso, exige WinRM habilitado nas máquinas-alvo.\nA busca pesquisa até /22 por interface; edite a faixa para outras redes internas. A senha não é gravada."};
         var bar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=85,AutoScroll=true};
         networks.Text=string.Join("; ",IPv4Range.LocalCidrs(true));
         var find=new Button{Text="Localizar máquinas",AutoSize=true};find.Click+=async(_,_)=>await Scan();
