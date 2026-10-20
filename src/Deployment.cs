@@ -60,6 +60,7 @@ sealed class DeploymentPanel:UserControl
     readonly Button preAuth=new(){Text="Marcar como pré-autorizadas",AutoSize=true};
     readonly Button unAuth=new(){Text="Exigir confirmação",AutoSize=true};
     readonly Button updateNow=new(){Text="Atualizar agora",AutoSize=true};
+    readonly Button export=new(){Text="Exportar inventário CSV",AutoSize=true};
     CancellationTokenSource? scan;
     bool started,deploying;
     public DeploymentPanel()
@@ -72,7 +73,7 @@ sealed class DeploymentPanel:UserControl
         var stop=new Button{Text="Parar busca",AutoSize=true};stop.Click+=(_,_)=>scan?.Cancel();
         var select=new Button{Text="Selecionar compatíveis",AutoSize=true};select.Click+=(_,_)=>{foreach(DataGridViewRow row in grid.Rows){var h=(NetworkHost)row.Tag!;row.Cells[0].Value=mode.SelectedIndex switch{0=>h.WinRmHttps,1=>h.WinRmKerberos,_=>h.Smb};}};
         mode.Items.AddRange(["HTTPS (sem exigir domínio)","Domínio (Kerberos)","SMB + Agendador (sem WinRM)"]);mode.SelectedIndex=2;
-        bar.Controls.AddRange([networks,find,stop,mode,select,install,preAuth,unAuth,updateNow,search]);
+        bar.Controls.AddRange([networks,find,stop,mode,select,install,preAuth,unAuth,updateNow,export,search]);
         search.TextChanged+=(_,_)=>{grid.CurrentCell=null;foreach(DataGridViewRow row in grid.Rows)row.Visible=string.Join(" ",row.Cells.Cast<DataGridViewCell>().Skip(1).Select(c=>Convert.ToString(c.Value))).Contains(search.Text,StringComparison.CurrentCultureIgnoreCase);};
         grid.Columns.Add(new DataGridViewCheckBoxColumn{Name="Selecionar",FillWeight=35});
         grid.Columns.Add(new DataGridViewTextBoxColumn{Name="IP",ReadOnly=true,FillWeight=65});
@@ -87,9 +88,25 @@ sealed class DeploymentPanel:UserControl
         preAuth.Click+=async(_,_)=>await ApplyPolicy("PreAutorizado");
         unAuth.Click+=async(_,_)=>await ApplyPolicy("Confirmacao");
         updateNow.Click+=async(_,_)=>await TriggerUpdate();
+        export.Click+=(_,_)=>ExportCsv();
         Controls.Add(grid);Controls.Add(bar);Controls.Add(help);Controls.Add(status);
         Enter+=async(_,_)=>{if(!started){started=true;await Scan();}};
         Disposed+=(_,_)=>scan?.Cancel();
+    }
+    void ExportCsv()
+    {
+        using var dialog=new SaveFileDialog{Filter="CSV UTF-8 (*.csv)|*.csv",FileName="inventario-rede-"+DateTime.Now.ToString("yyyyMMdd-HHmm")+".csv",Title="Exportar inventário da rede"};
+        if(dialog.ShowDialog(this)!=DialogResult.OK)return;
+        static string Csv(object? value){var text=Convert.ToString(value)??"";return "\""+text.Replace("\"","\"\"")+"\"";}
+        var headers=grid.Columns.Cast<DataGridViewColumn>().Select(c=>Csv(c.HeaderText));
+        var lines=new List<string>{string.Join(";",headers)};
+        foreach(DataGridViewRow row in grid.Rows)
+        {
+            if(row.IsNewRow)continue;
+            lines.Add(string.Join(";",row.Cells.Cast<DataGridViewCell>().Select(c=>Csv(c.Value))));
+        }
+        File.WriteAllLines(dialog.FileName,lines,new System.Text.UTF8Encoding(true));
+        status.Text=$"Inventário exportado: {lines.Count-1} máquina(s) em {dialog.FileName}";
     }
     async Task Scan()
     {

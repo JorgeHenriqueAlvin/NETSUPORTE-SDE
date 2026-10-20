@@ -365,6 +365,12 @@ sealed class Technician:Form
             var previous=observations.GetValueOrDefault(d.Id);
             string Field(string key)=>root.TryGetProperty(key,out var value)&&value.ValueKind==JsonValueKind.String?value.GetString()??"":"";
             observations[d.Id]=new(Field("hostname") is {Length:>0} host?host:MachineNames.Display(d,previous),Field("description"),!string.IsNullOrWhiteSpace(previous?.RamTotal)?previous.OS:Field("os"),Field("osVersion"),Field("version"),DateTimeOffset.UtcNow,previous?.RamTotal??"",Field("sessionUser"));
+            try
+            {
+                var history=Path.Combine(folder,"machine-history.jsonl");
+                var snapshot=observations[d.Id];
+                File.AppendAllText(history,JsonSerializer.Serialize(new{at=snapshot.Seen,deviceId=d.Id,machine=d.Name,ip=d.Host,hostname=snapshot.Hostname,user=snapshot.SessionUser,description=snapshot.Description,os=snapshot.OS,version=snapshot.AgentVersion,ram=snapshot.RamTotal})+Environment.NewLine);
+            }catch{}
             // Inventory is authenticated and pinned like /info; cache expensive hardware
             // reads rather than querying them with every presence heartbeat.
             if(root.TryGetProperty("capabilities",out var capabilities)&&capabilities.ValueKind==JsonValueKind.Array
