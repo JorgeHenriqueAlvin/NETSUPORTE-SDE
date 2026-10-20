@@ -7,15 +7,20 @@ sealed class Technician:Form
     readonly List<Device> devices=[];
     Dictionary<string,MachineMetadata> metadata=new();
     Dictionary<string,MachineObservation> observations=new();
+    readonly Dictionary<string,string> connectionErrors=new();
     string MetadataPath=>Path.Combine(folder,"machine-metadata.json");
     string ObservationsPath=>Path.Combine(folder,"machine-observations.json");
     MachineMetadata Admin(Device d)=>metadata.GetValueOrDefault(d.Id)??new();
     string MachineLabel(Device d)
     {
         var a=Admin(d);var o=observations.GetValueOrDefault(d.Id);
-        string hostname=o?.Hostname??"Nome não identificado";
+        string hostname=MachineNames.Display(d,o);
         var last=online.TryGetValue(d.Id,out var live)?live:o?.Seen;
-        return $"{hostname} • Apelido: {a.Alias}\n{(a.Description.Length>0?a.Description:(string.IsNullOrEmpty(o?.Description)?"Descrição não disponível":o.Description))}\n{(a.Sector.Length>0?a.Sector:d.Sector)} • {a.Location} • {d.Host}\n{(string.IsNullOrEmpty(o?.OS)?"Sistema não identificado":o.OS)} • Agente: {o?.AgentVersion??"não informado"} • Última comunicação: {last?.ToLocalTime().ToString("g")??"não registrada"}";
+        string alias=string.IsNullOrWhiteSpace(a.Alias)?"":$" • Apelido: {a.Alias}";
+        string description=!string.IsNullOrWhiteSpace(a.Description)?a.Description:!string.IsNullOrWhiteSpace(o?.Description)?o.Description:"Descrição não informada";
+        string location=string.Join(" • ",new[]{a.Sector.Length>0?a.Sector:d.Sector,a.Location}.Where(v=>!string.IsNullOrWhiteSpace(v)));
+        string details=connectionErrors.TryGetValue(d.Id,out var error)?"Consulta: "+error:$"Última comunicação: {last?.ToLocalTime().ToString("g")??"aguardando resposta do agente"}";
+        return $"{hostname}{alias}\nIP: {d.Host} • {location}\n{description}\n{(string.IsNullOrWhiteSpace(o?.OS)?"Sistema não informado":o.OS)} • Agente: {o?.AgentVersion??"não informado"}\n{details}";
     }
     void EditMetadata()
     {
@@ -146,7 +151,7 @@ sealed class Technician:Form
         if(File.Exists(Path.Combine(folder,"authorities.json")))authorities.AddRange(Json.Read<TechnicianKey[]>(Path.Combine(folder,"authorities.json")));
         authorities.RemoveAll(a=>a.Id==identity.Public.Id);authorities.Add(identity.Public);
         authorities.RemoveAll(a=>a.Id==TeamAccess.Root.Id);authorities.Add(TeamAccess.Root);
-        list.DrawMode=DrawMode.OwnerDrawFixed;list.ItemHeight=125;
+        list.DrawMode=DrawMode.OwnerDrawFixed;list.ItemHeight=165;
         list.DrawItem+=(_,e)=>{
             if(e.Index<0)return;e.DrawBackground();var d=(Device)list.Items[e.Index];
             bool available=online.TryGetValue(d.Id,out var seen)&&DateTimeOffset.UtcNow-seen<TimeSpan.FromSeconds(45);
@@ -313,17 +318,22 @@ sealed class Technician:Form
             using var info=JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             if(info.RootElement.GetProperty("id").GetString()!=d.Id)return;
             if(closing||IsDisposed)return;
-            online[d.Id]=DateTimeOffset.UtcNow;
+            online[d.Id]=DateTimeOffset.UtcNow;connectionErrors.Remove(d.Id);
             var root=info.RootElement;
             var previous=observations.GetValueOrDefault(d.Id);
-            string Field(string key)=>root.TryGetProperty(key,out var value)?value.GetString()??"":"";
-            observations[d.Id]=new(Field("hostname") is {Length:>0} host?host:previous?.Hostname??"Nome não identificado",Field("description"),Field("os"),Field("osVersion"),Field("version"),DateTimeOffset.UtcNow);
+            string Field(string key)=>root.TryGetProperty(key,out var value)&&value.ValueKind==JsonValueKind.String?value.GetString()??"":"";
+            observations[d.Id]=new(Field("hostname") is {Length:>0} host?host:MachineNames.Display(d,previous),Field("description"),Field("os"),Field("osVersion"),Field("version"),DateTimeOffset.UtcNow);
             Json.Write(ObservationsPath,observations);
             var existing=devices.FirstOrDefault(x=>x.Id==d.Id);
             if(existing!=d){devices.RemoveAll(x=>x.Id==d.Id);devices.Add(d);dirty=true;}
             Filter(search.Text);
         }catch(HttpRequestException e)when(e.StatusCode==System.Net.HttpStatusCode.TooManyRequests){online[d.Id]=DateTimeOffset.UtcNow;if(!IsDisposed)list.Invalidate();}
-        catch{online.Remove(d.Id);if(!IsDisposed&&!closing)list.Invalidate();}
+        catch(Exception e)
+        {
+            online.Remove(d.Id);
+            connectionErrors[d.Id]=e is HttpRequestException h&&h.StatusCode is not null?$"HTTP {(int)h.StatusCode}: verifique autorização e versão do Cliente":e is TaskCanceledException?"Agente não respondeu a tempo; confira se está aberto":e is HttpRequestException?"Sem conexão segura com o agente; confira IP, Cliente e firewall":"Não foi possível ler os dados do agente";
+            if(!IsDisposed&&!closing)Filter(search.Text);
+        }
         finally{checking.Remove(d.Id);probes.Release();}
     }
     void ExportIdentity()

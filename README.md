@@ -23,6 +23,10 @@ O funcionário vê um ícone de disponibilidade e, durante o atendimento, o nome
 
 O arquivo Técnico-Autorizado possui a autorização da equipe e é distribuído somente à TI por canal privado. O repositório público contém o código-fonte, o Cliente e o modelo **Técnico-Base**, sem autorização privada.
 
+## Identificação das máquinas — console 0.12.11
+
+O console mostra o hostname informado pelo agente ou, enquanto a consulta estiver indisponível, o nome já salvo no cadastro da máquina. Agentes antigos sem o campo `hostname` também usam esse nome. O IP aparece em linha separada; falhas da consulta indicam problemas de conexão, tempo de resposta ou autorização. A identificação não depende de DNS reverso e não altera as credenciais dos agentes.
+
 ## Buscar agentes instalados — console 0.12.10
 
 Clique em **Buscar agentes instalados** no Técnico. A busca também inicia ao abrir o console: envia descoberta UDP, verifica os endereços já salvos e pesquisa por HTTPS as redes locais (limite inicial /22 por interface) junto às faixas configuradas em **Varredura de IP**. Uma faixa salva não substitui mais as redes locais. A varredura continua limitada a 65.536 endereços por pesquisa.

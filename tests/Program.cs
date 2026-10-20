@@ -27,6 +27,11 @@ static class Tests
                     bool incompatible=false;try{ClientPackage.Verify(copy,new Version(99,0,0));}catch(IOException){incompatible=true;}Check(incompatible,"pacote incompatível");
                     var original=new Device(Guid.NewGuid().ToString(),"host","TI","192.168.1.10",7443,new string('A',64));
                     var administrative=new Dictionary<string,MachineMetadata>{{original.Id,new("Apelido","Descrição","Setor","Local")}};
+                    Check(MachineNames.Display(original,null)=="host","nome cadastrado aparece sem consulta ao agente");
+                    var observation=new MachineObservation("PC-ATUAL","","","","",DateTimeOffset.UtcNow);
+                    Check(MachineNames.Display(original,observation)=="PC-ATUAL","hostname autenticado tem prioridade sobre nome cadastrado");
+                    Check(MachineNames.Display(original,observation with{Hostname="Nome não identificado"})=="host","cache antigo sem hostname usa nome cadastrado");
+                    Check(MachineNames.Display(original,observation with{Hostname=" "})=="host","hostname vazio usa nome cadastrado");
                     var persisted=Path.Combine(scratch,"metadata.json");Json.Write(persisted,administrative);
                     var moved=original with{Host="192.168.1.20"};
                     Check(Json.Read<Dictionary<string,MachineMetadata>>(persisted)[moved.Id]==administrative[original.Id],"metadados persistem por ID após troca de IP");
