@@ -123,6 +123,20 @@ static class Tests
                     Check(Descendants(console).OfType<Button>().Any(b=>b.Text=="Adicionar Raspberry/Linux"),"console oferece adicionar Raspberry/Linux pelo IP");
                     Check(Descendants(console).OfType<Button>().Any(b=>b.Text=="Configurações da máquina"),"console oferece configuracoes da maquina");
                     Check(Descendants(console).OfType<Button>().Any(b=>b.Text=="Buscar Raspberry Pi"),"console oferece busca automatica de Raspberry");
+                    Check(Descendants(console).OfType<Button>().Any(b=>b.Text=="Buscar agentes instalados"),"console oferece busca de agentes instalados");
+                    var agentList=(ListBox)typeof(Technician).GetField("list",flags)!.GetValue(console)!;
+                    var filter=typeof(Technician).GetMethod("Filter",flags)!;
+                    var onlineOnly=(CheckBox)typeof(Technician).GetField("onlyOnline",flags)!.GetValue(console)!;
+                    filter.Invoke(console,new object[]{""});
+                    Check(agentList.Items.Count==3&&presence.ContainsKey(((Device)agentList.Items[0]).Id),"lista preserva salvos e prioriza conectados");
+                    onlineOnly.Checked=true;
+                    Check(agentList.Items.Count==2,"filtro mostra apenas agentes com comunicacao recente");
+                    filter.Invoke(console,new object[]{"Cliente 1"});
+                    Check(agentList.Items.Count==1&&((Device)agentList.Items[0]).Name=="Cliente 1","pesquisa textual combina com filtro de conectados");
+                    presence[fixtures[1].Id]=DateTimeOffset.UtcNow.AddMinutes(-1);
+                    filter.Invoke(console,new object[]{""});
+                    Check(agentList.Items.Count==1,"agente sem comunicacao recente deixa filtro de conectados");
+                    presence[fixtures[1].Id]=DateTimeOffset.UtcNow;onlineOnly.Checked=false;
                     using(var finder=new FindLinuxAgentsDialog([previewIdentity.Public.Id],previewIdentity,CancellationToken.None)){
                         Check(finder.SelectedDevice is null,"busca inicia sem selecao nao verificada");
                         Check(!Descendants(finder).OfType<Button>().Single(b=>b.Text=="Adicionar selecionado").Enabled,"busca exige resultado verificado antes de adicionar");

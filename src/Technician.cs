@@ -54,6 +54,9 @@ sealed class Technician:Form
     readonly RemoteScreen screen=new(){Dock=DockStyle.Fill,BackColor=Color.FromArgb(15,27,45),SizeMode=PictureBoxSizeMode.Zoom,TabStop=true};
     readonly Label status=new(){Dock=DockStyle.Bottom,Height=32};
     readonly TextBox search=new(){Dock=DockStyle.Top,PlaceholderText="Pesquisar nome, apelido, descrição, setor, local ou IP"};
+    readonly CheckBox onlyOnline=new(){Dock=DockStyle.Top,Height=30,Text="Mostrar somente conectados"};
+    readonly Label machineCount=new(){Dock=DockStyle.Bottom,Height=30};
+    bool IsOnline(Device d)=>online.TryGetValue(d.Id,out var seen)&&DateTimeOffset.UtcNow-seen<TimeSpan.FromSeconds(45);
     readonly TextBox text=new(){Width=220,PlaceholderText="Texto para digitar no computador"};
     readonly Button connect=new(){Text="Conectar",AutoSize=true};
     readonly System.Windows.Forms.Timer timer=new(){Interval=100};
@@ -70,7 +73,7 @@ sealed class Technician:Form
     readonly System.Windows.Forms.Timer scanClock=new(){Interval=120000};
     readonly CancellationTokenSource lifetime=new();
     CancellationTokenSource? scanning;
-    bool dirty;
+    bool dirty,searchingAgents;
     RemoteClient? client;
     bool loading,closing;
     DateTime lastMove;
@@ -81,10 +84,10 @@ sealed class Technician:Form
         Text=$"SDE Suporte — {identity.Public.Name}";Width=1360;Height=850;MinimumSize=new(900,560);
         Font=new Font("Segoe UI",10);BackColor=Color.White;DoubleBuffered=true;KeyPreview=false;
         var sidebar=new Panel{Dock=DockStyle.Left,Width=330,Padding=new Padding(8)};
-        sidebar.Controls.Add(list);sidebar.Controls.Add(search);sidebar.Controls.Add(scanStatus);
+        sidebar.Controls.Add(list);sidebar.Controls.Add(onlyOnline);sidebar.Controls.Add(search);sidebar.Controls.Add(scanStatus);sidebar.Controls.Add(machineCount);
         var toolbar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=104,Padding=new Padding(10),AutoScroll=true};
         Button Add(string label,Func<Task> action){var b=new Button{Text=label,AutoSize=true};b.Click+=async(_,_)=>await Safe(action);toolbar.Controls.Add(b);return b;}
-        Add("Atualizar máquinas",async()=>{if(discovery is not null)await discovery.Search();await ScanLocal();});
+        Add("Buscar agentes instalados",async()=>{search.Clear();await SearchAgents();});
         Add("Varredura de IP",ChooseScan);
         Add("Configurações da máquina",MachineDetails);
         Add("Editar identificação",()=>{EditMetadata();return Task.CompletedTask;});
@@ -138,6 +141,7 @@ sealed class Technician:Form
         if(File.Exists(MetadataPath))metadata=Json.Read<Dictionary<string,MachineMetadata>>(MetadataPath);
         if(File.Exists(ObservationsPath))observations=Json.Read<Dictionary<string,MachineObservation>>(ObservationsPath);
         search.TextChanged+=(_,_)=>Filter(search.Text);
+        onlyOnline.CheckedChanged+=(_,_)=>Filter(search.Text);
         if(File.Exists(Path.Combine(folder,"computers.json")))devices.AddRange(Json.Read<Device[]>(Path.Combine(folder,"computers.json")));
         if(File.Exists(Path.Combine(folder,"authorities.json")))authorities.AddRange(Json.Read<TechnicianKey[]>(Path.Combine(folder,"authorities.json")));
         authorities.RemoveAll(a=>a.Id==identity.Public.Id);authorities.Add(identity.Public);
@@ -152,11 +156,11 @@ sealed class Technician:Form
         Filter("");status.Text=$"Técnico: {identity.Public.Name} | Instale o agente nos funcionários. As máquinas da equipe aparecem automaticamente.";
         Shown+=async(_,_)=>{
             try{discovery=new ConsoleDiscovery(identity,()=>authorities.Select(a=>a.Id).ToArray(),QueueDiscovered);}catch(Exception e){scanStatus.Text="Descoberta UDP indisponível: "+e.Message;}
-            await Safe(ScanLocal);
+            await Safe(SearchAgents);
         };
         scanClock.Tick+=async(_,_)=>{if(scanning is null&&!closing)await Safe(ScanLocal);};scanClock.Start();
         presence.Tick+=(_,_)=>{
-            list.Invalidate();if(dirty){SaveDevices();dirty=false;}
+            Filter(search.Text);if(dirty){SaveDevices();dirty=false;}
             foreach(var device in devices.ToArray())if(!probed.TryGetValue(device.Id,out var at)||DateTimeOffset.UtcNow-at>TimeSpan.FromSeconds(12))Discovered(device);
         };presence.Start();
         timer.Tick+=async(_,_)=>{if(!loading&&client?.Session is not null&&(fullScreen is not null||tabs.SelectedTab==remotePage))await Safe(Frame);};
@@ -252,11 +256,24 @@ sealed class Technician:Form
         Json.Write(Path.Combine(folder,"scan-ranges.json"),ranges.Select(r=>r.Label).ToArray());
         await Scan(ranges);
     }
+    async Task SearchAgents()
+    {
+        if(scanning is not null||searchingAgents){status.Text="Busca em andamento. Aguarde ou use Parar varredura.";return;}
+        searchingAgents=true;
+        try
+        {
+            if(discovery is not null)await discovery.Search();
+            // Recheck saved hosts too: these may be outside the locally inferred subnets.
+            await Task.WhenAll(devices.ToArray().Select(d=>CheckDevice(d,true)));
+            await ScanLocal();
+        }
+        finally{searchingAgents=false;}
+    }
     Task ScanLocal()
     {
         if(scanning is not null||closing)return Task.CompletedTask;
         var path=Path.Combine(folder,"scan-ranges.json");
-        var networks=File.Exists(path)?Json.Read<string[]>(path):IPv4Range.LocalCidrs(true);
+        var networks=IPv4Range.LocalCidrs(true).Concat(File.Exists(path)?Json.Read<string[]>(path):Array.Empty<string>()).Distinct().ToArray();
         return Scan(networks.Select(s=>IPv4Range.Parse(s)).ToArray());
     }
     async Task Scan(IPv4Range[] ranges)
@@ -266,8 +283,10 @@ sealed class Technician:Form
         var progress=new Progress<ScanProgress>(p=>{if(!closing)scanStatus.Text=$"IPs: {p.Checked}/{p.Total} • Agentes: {p.Found}";});
         try
         {
-            await NetworkScanner.Scan(ranges,authorities.Select(a=>a.Id).ToArray(),identity.Public.Id,QueueDiscovered,progress,cancellation.Token);
-            if(!closing)status.Text=$"Busca concluída: {devices.Count} computador(es) na lista. Selecione uma máquina e clique em Conectar.";
+            var discovered=new System.Collections.Concurrent.ConcurrentDictionary<string,Device>();
+            await NetworkScanner.Scan(ranges,authorities.Select(a=>a.Id).ToArray(),identity.Public.Id,d=>{discovered[d.Id]=d;QueueDiscovered(d);},progress,cancellation.Token);
+            await Task.WhenAll(discovered.Values.Select(d=>CheckDevice(d,true)));
+            if(!closing){Filter(search.Text);scanStatus.Text="Busca de agentes concluída.";status.Text=$"Busca concluída: {devices.Count(IsOnline)} agente(s) com comunicação recente • {devices.Count} máquina(s) salvas. Se não encontrou o agente, confira se está aberto e use Varredura de IP para outras redes.";}
         }catch(OperationCanceledException){if(!closing)scanStatus.Text="Varredura interrompida.";}
         finally{scanning=null;}
     }
@@ -281,10 +300,11 @@ sealed class Technician:Form
         authorities.RemoveAll(a=>a.Id==issuer.Id);authorities.Add(issuer);Json.Write(Path.Combine(folder,"authorities.json"),authorities);
         if(discovery is not null)_=discovery.Search();
     }
-    async void Discovered(Device d)
+    async void Discovered(Device d)=>await CheckDevice(d);
+    async Task CheckDevice(Device d,bool force=false)
     {
         if(client?.Session is not null&&list.SelectedItem is Device active&&active.Id==d.Id)return;
-        if(checking.Contains(d.Id)||probed.TryGetValue(d.Id,out var last)&&DateTimeOffset.UtcNow-last<TimeSpan.FromSeconds(7))return;
+        if(checking.Contains(d.Id)||!force&&probed.TryGetValue(d.Id,out var last)&&DateTimeOffset.UtcNow-last<TimeSpan.FromSeconds(7))return;
         probed[d.Id]=DateTimeOffset.UtcNow;checking.Add(d.Id);await probes.WaitAsync();
         try
         {
@@ -300,8 +320,8 @@ sealed class Technician:Form
             observations[d.Id]=new(Field("hostname") is {Length:>0} host?host:previous?.Hostname??"Nome não identificado",Field("description"),Field("os"),Field("osVersion"),Field("version"),DateTimeOffset.UtcNow);
             Json.Write(ObservationsPath,observations);
             var existing=devices.FirstOrDefault(x=>x.Id==d.Id);
-            if(existing!=d){devices.RemoveAll(x=>x.Id==d.Id);devices.Add(d);dirty=true;Filter(search.Text);}
-            list.Invalidate();
+            if(existing!=d){devices.RemoveAll(x=>x.Id==d.Id);devices.Add(d);dirty=true;}
+            Filter(search.Text);
         }catch(HttpRequestException e)when(e.StatusCode==System.Net.HttpStatusCode.TooManyRequests){online[d.Id]=DateTimeOffset.UtcNow;if(!IsDisposed)list.Invalidate();}
         catch{online.Remove(d.Id);if(!IsDisposed&&!closing)list.Invalidate();}
         finally{checking.Remove(d.Id);probes.Release();}
@@ -331,7 +351,23 @@ sealed class Technician:Form
         var updated=d with{Host=address.Trim()};updated.Validate();devices.RemoveAll(x=>x.Id==d.Id);devices.Add(updated);SaveDevices();Filter("");
     }
     void SaveDevices()=>Json.Write(Path.Combine(folder,"computers.json"),devices);
-    void Filter(string query){string? selected=(list.SelectedItem as Device)?.Id;list.Items.Clear();foreach(var d in devices.Where(d=>(MachineLabel(d)+d.ToString()).Contains(query,StringComparison.CurrentCultureIgnoreCase)).OrderBy(d=>d.Name)){list.Items.Add(d);if(d.Id==selected)list.SelectedItem=d;}}
+    void Filter(string query)
+    {
+        if(closing)return;
+        string? selected=(list.SelectedItem as Device)?.Id;
+        int top=list.TopIndex;
+        list.BeginUpdate();
+        try
+        {
+            list.Items.Clear();
+            foreach(var d in devices.Where(d=>(!onlyOnline.Checked||IsOnline(d))&&(MachineLabel(d)+d.ToString()).Contains(query,StringComparison.CurrentCultureIgnoreCase))
+                .OrderByDescending(IsOnline).ThenBy(d=>observations.GetValueOrDefault(d.Id)?.Hostname??d.Name,StringComparer.CurrentCultureIgnoreCase))
+            {list.Items.Add(d);if(d.Id==selected)list.SelectedItem=d;}
+            if(list.Items.Count>0)list.TopIndex=Math.Min(Math.Max(top,0),list.Items.Count-1);
+            machineCount.Text=$"{devices.Count(IsOnline)} conectados • {devices.Count} salvos • {list.Items.Count} exibidos";
+        }
+        finally{list.EndUpdate();}
+    }
     async Task Safe(Func<Task> action)
     {
         try{await action();}catch(Exception e){timer.Stop();status.Text="Falha: "+e.Message;if(!closing)MessageBox.Show(e.Message,"SDE Suporte",MessageBoxButtons.OK,MessageBoxIcon.Information);}

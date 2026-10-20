@@ -23,6 +23,14 @@ O funcionário vê um ícone de disponibilidade e, durante o atendimento, o nome
 
 O arquivo Técnico-Autorizado possui a autorização da equipe e é distribuído somente à TI por canal privado. O repositório público contém o código-fonte, o Cliente e o modelo **Técnico-Base**, sem autorização privada.
 
+## Buscar agentes instalados — console 0.12.10
+
+Clique em **Buscar agentes instalados** no Técnico. A busca também inicia ao abrir o console: envia descoberta UDP, verifica os endereços já salvos e pesquisa por HTTPS as redes locais (limite inicial /22 por interface) junto às faixas configuradas em **Varredura de IP**. Uma faixa salva não substitui mais as redes locais. A varredura continua limitada a 65.536 endereços por pesquisa.
+
+A lista prioriza máquinas com comunicação recente, mostra contagens de conectados/salvos/exibidos e permite **Mostrar somente conectados**, combinado com a pesquisa por nome, descrição ou IP. Máquinas salvas sem resposta permanecem no histórico; não são tratadas como conectadas. A verificação de presença e a busca periódica continuam automáticas.
+
+O agente precisa estar executando, pertencer à equipe autorizada e estar acessível pela rede. Instalação sem agente em execução, computador desligado ou firewall/roteamento bloqueado não produz resultado conectado. Para outras sub-redes, informe as faixas em **Varredura de IP**. O agente existente não precisa ser reinstalado para usar estes controles do console.
+
 ## Descoberta e varredura de IP
 
 - O console envia descoberta UDP autenticada a cada cinco segundos.
