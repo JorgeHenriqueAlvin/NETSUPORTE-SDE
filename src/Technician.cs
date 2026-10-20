@@ -21,7 +21,7 @@ sealed class Technician:Form
         string description=!string.IsNullOrWhiteSpace(a.Description)?a.Description:!string.IsNullOrWhiteSpace(o?.Description)?o.Description:"Descrição não informada";
         string location=string.Join(" • ",new[]{a.Sector.Length>0?a.Sector:d.Sector,a.Location}.Where(v=>!string.IsNullOrWhiteSpace(v)));
         string details=connectionErrors.TryGetValue(d.Id,out var error)?"Consulta: "+error:$"Última comunicação: {last?.ToLocalTime().ToString("g")??"aguardando resposta do agente"}";
-        return $"{hostname}{alias}\nIP: {d.Host} • {location}\n{MachineDescriptions.Summary(o)}\n{description}\nAgente: {o?.AgentVersion??"não informado"} • {details}";
+        return $"{hostname}{alias}\n{MachineDescriptions.UserLine(o,IsOnline(d))}\nIP: {d.Host} • {location}\n{MachineDescriptions.Summary(o)}\n{description}\nAgente: {o?.AgentVersion??"não informado"} • {details}";
     }
     void EditMetadata()
     {
@@ -59,7 +59,7 @@ sealed class Technician:Form
     bool updatingMonitors;
     readonly RemoteScreen screen=new(){Dock=DockStyle.Fill,BackColor=Color.FromArgb(15,27,45),SizeMode=PictureBoxSizeMode.Zoom,TabStop=true};
     readonly Label status=new(){Dock=DockStyle.Bottom,Height=32};
-    readonly TextBox search=new(){Dock=DockStyle.Top,PlaceholderText="Pesquisar nome, apelido, descrição, setor, local ou IP"};
+    readonly TextBox search=new(){Dock=DockStyle.Top,PlaceholderText="Pesquisar computador, usuário, descrição, setor ou IP"};
     readonly CheckBox onlyOnline=new(){Dock=DockStyle.Top,Height=30,Text="Mostrar somente conectados"};
     readonly Label machineCount=new(){Dock=DockStyle.Bottom,Height=30};
     bool IsOnline(Device d)=>online.TryGetValue(d.Id,out var seen)&&DateTimeOffset.UtcNow-seen<TimeSpan.FromSeconds(45);
@@ -152,7 +152,7 @@ sealed class Technician:Form
         if(File.Exists(Path.Combine(folder,"authorities.json")))authorities.AddRange(Json.Read<TechnicianKey[]>(Path.Combine(folder,"authorities.json")));
         authorities.RemoveAll(a=>a.Id==identity.Public.Id);authorities.Add(identity.Public);
         authorities.RemoveAll(a=>a.Id==TeamAccess.Root.Id);authorities.Add(TeamAccess.Root);
-        list.DrawMode=DrawMode.OwnerDrawFixed;list.ItemHeight=185;
+        list.DrawMode=DrawMode.OwnerDrawFixed;list.ItemHeight=210;
         list.DrawItem+=(_,e)=>{
             if(e.Index<0)return;e.DrawBackground();var d=(Device)list.Items[e.Index];
             bool available=online.TryGetValue(d.Id,out var seen)&&DateTimeOffset.UtcNow-seen<TimeSpan.FromSeconds(45);
@@ -323,7 +323,7 @@ sealed class Technician:Form
             var root=info.RootElement;
             var previous=observations.GetValueOrDefault(d.Id);
             string Field(string key)=>root.TryGetProperty(key,out var value)&&value.ValueKind==JsonValueKind.String?value.GetString()??"":"";
-            observations[d.Id]=new(Field("hostname") is {Length:>0} host?host:MachineNames.Display(d,previous),Field("description"),!string.IsNullOrWhiteSpace(previous?.RamTotal)?previous.OS:Field("os"),Field("osVersion"),Field("version"),DateTimeOffset.UtcNow,previous?.RamTotal??"");
+            observations[d.Id]=new(Field("hostname") is {Length:>0} host?host:MachineNames.Display(d,previous),Field("description"),!string.IsNullOrWhiteSpace(previous?.RamTotal)?previous.OS:Field("os"),Field("osVersion"),Field("version"),DateTimeOffset.UtcNow,previous?.RamTotal??"",Field("sessionUser"));
             // Inventory is authenticated and pinned like /info; cache expensive hardware
             // reads rather than querying them with every presence heartbeat.
             if(root.TryGetProperty("capabilities",out var capabilities)&&capabilities.ValueKind==JsonValueKind.Array

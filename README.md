@@ -1,3 +1,11 @@
+## Usuário conectado — versão Windows 0.12.13
+
+A lista do Técnico exibe **Usuário conectado: DOMÍNIO\login**, separado do nome do computador, do sistema operacional e da RAM. O Cliente consulta a sessão Windows onde está executando; não usa o nome do técnico nem a conta administrativa de um processo elevado. A informação é atualizada nas verificações de presença e também aparece no inventário detalhado.
+
+Atualize **Técnico e Cliente** para 0.12.13. Clientes anteriores não enviam esse campo e mostram “não informado”. Para computadores sem comunicação recente, o texto passa a “Último usuário informado”, evitando tratar um login salvo como uma sessão conectada. O dado fica no cache local de observações do console, assim como o hostname.
+
+Sessão 0, sessão desconectada ou falha ao consultar o Windows retornam usuário indisponível. O campo representa a sessão do agente, incluindo sessões RDP; não enumera todas as sessões de um servidor. Esta versão não acrescenta identificação de usuário ao agente Linux.
+
 ## Descrição com sistema e RAM — console 0.12.12
 
 A lista mostra o nome do computador cliente, o IP, o sistema operacional e a RAM total enviados pelo inventário autenticado do agente. O console consulta `/inventory` automaticamente após verificar a presença, para agentes que anunciam essa capacidade, e limita as consultas de hardware a uma a cada cinco minutos por máquina. Os dados ficam salvos para consulta posterior; o estado conectado continua dependendo da comunicação recente.

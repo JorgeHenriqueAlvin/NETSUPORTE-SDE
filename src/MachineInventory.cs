@@ -8,6 +8,37 @@ namespace SdeSuporte;
 
 public static class MachineInventory
 {
+    // Query the interactive session hosting the agent, not the process identity:
+    // an elevated agent may run as an administrator while a different user owns
+    // the desktop. Session 0 and disconnected sessions must not impersonate a user.
+    public static string SessionUser()
+    {
+        if(!OperatingSystem.IsWindows())return "";
+        try
+        {
+            using var process=System.Diagnostics.Process.GetCurrentProcess();
+            int session=process.SessionId;
+            if(session==0)return "";
+            if(!WTSQuerySessionInformation(IntPtr.Zero,session,8,out var state,out int bytes))return "";
+            try{if(bytes<4||Marshal.ReadInt32(state)!=0)return "";}
+            finally{WTSFreeMemory(state);}
+            string Query(int field)
+            {
+                if(!WTSQuerySessionInformation(IntPtr.Zero,session,field,out var buffer,out _))return "";
+                try{return Marshal.PtrToStringUni(buffer)?.Trim()??"";}
+                finally{WTSFreeMemory(buffer);}
+            }
+            string user=Query(5),domain=Query(7);
+            return string.IsNullOrWhiteSpace(user)?"":string.IsNullOrWhiteSpace(domain)?user:domain+"\\"+user;
+        }
+        catch{return "";}
+    }
+    [DllImport("wtsapi32.dll",EntryPoint="WTSQuerySessionInformationW",CharSet=CharSet.Unicode)]
+    [return:MarshalAs(UnmanagedType.Bool)]
+    static extern bool WTSQuerySessionInformation(IntPtr server,int session,int field,out IntPtr buffer,out int bytes);
+    [DllImport("wtsapi32.dll")]
+    static extern void WTSFreeMemory(IntPtr buffer);
+
     public static string OperatingSystemName()
     {
         if(OperatingSystem.IsLinux())
@@ -24,6 +55,7 @@ public static class MachineInventory
         var data=new Dictionary<string,string>
         {
             ["Nome da máquina / host"]=Environment.MachineName,
+            ["Usuário conectado"]=SessionUser(),
             ["Sistema operacional"]=RuntimeInformation.OSDescription,
             ["Versão do sistema"]=Environment.OSVersion.VersionString,
             ["Arquitetura"]=RuntimeInformation.OSArchitecture.ToString(),

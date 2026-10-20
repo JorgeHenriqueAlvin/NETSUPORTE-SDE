@@ -1,7 +1,7 @@
 namespace SdeSuporte;
 
 public record MachineMetadata(string Alias="",string Description="",string Sector="",string Location="");
-public record MachineObservation(string Hostname,string Description,string OS,string Version,string AgentVersion,DateTimeOffset Seen,string RamTotal="");
+public record MachineObservation(string Hostname,string Description,string OS,string Version,string AgentVersion,DateTimeOffset Seen,string RamTotal="",string SessionUser="");
 
 public static class MachineNames
 {
@@ -16,6 +16,11 @@ public static class MachineNames
 
 public static class MachineDescriptions
 {
+    public static string UserLine(MachineObservation? observation,bool online)
+    {
+        string user=string.IsNullOrWhiteSpace(observation?.SessionUser)?"não informado":observation.SessionUser;
+        return (online?"Usuário conectado: ":"Último usuário informado: ")+user;
+    }
     public static string Summary(MachineObservation? observation)
     {
         string os=string.IsNullOrWhiteSpace(observation?.OS)?"Sistema não informado":observation.OS;

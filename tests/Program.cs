@@ -37,6 +37,11 @@ static class Tests
                     Check(MachineDescriptions.ApplyInventory(hardware,new Dictionary<string,string>{{"RAM total",""}}).RamTotal=="15,80 GiB","inventario incompleto preserva RAM previamente coletada");
                     var legacy=JsonSerializer.Deserialize<MachineObservation>("{\"hostname\":\"LEGADO\",\"description\":\"\",\"os\":\"Windows 10\",\"version\":\"\",\"agentVersion\":\"0.11.0\",\"seen\":\"2026-10-20T00:00:00Z\"}",Json.Options);
                     Check(MachineDescriptions.Summary(legacy).Contains("RAM total: não informada"),"cache anterior sem RAM continua legivel sem inventar memoria");
+                    var loggedIn=hardware with{SessionUser=@"SDE\maria.silva"};
+                    Check(MachineDescriptions.UserLine(loggedIn,true)==@"Usuário conectado: SDE\maria.silva","lista exibe usuario da sessao separado do hostname");
+                    Check(MachineDescriptions.UserLine(loggedIn,false)==@"Último usuário informado: SDE\maria.silva","maquina offline nao apresenta usuario antigo como conectado");
+                    Check(MachineDescriptions.UserLine(legacy,true)=="Usuário conectado: não informado","agente e cache antigos sem usuario nao inventam login");
+                    Check(MachineDescriptions.ApplyInventory(loggedIn,new Dictionary<string,string>{{"Usuário conectado",@"SDE\outro"}}).SessionUser==loggedIn.SessionUser,"inventario de hardware nao sobrescreve usuario da verificacao de presenca");
                     var persisted=Path.Combine(scratch,"metadata.json");Json.Write(persisted,administrative);
                     var moved=original with{Host="192.168.1.20"};
                     Check(Json.Read<Dictionary<string,MachineMetadata>>(persisted)[moved.Id]==administrative[original.Id],"metadados persistem por ID após troca de IP");
@@ -58,7 +63,7 @@ static class Tests
                 else Json.Write(Path.Combine(args[1],"deployment.json"),Enrollment.Create(id,[],"Teste"));
                 Json.Write(Path.Combine(args[1],"tecnico.sdetech"),id.Public);File.WriteAllBytes(Path.Combine(args[1],"private-test.pk8"),id.ExportPrivate());return 0;
             }
-            if(args[0]=="protocol") {var inventory=MachineInventory.Collect();Check(inventory["Nome da máquina / host"]==Environment.MachineName&&inventory.ContainsKey("RAM total")&&inventory.ContainsKey("Sistema operacional"),"inventario Windows coleta host, sistema e RAM reais");Protocol();EnrollmentTests();TeamTests();RangeTests();MessagingTests();await InventoryTests();TechnicianSetupTests();return 0;}
+            if(args[0]=="protocol") {var inventory=MachineInventory.Collect();Check(inventory["Nome da máquina / host"]==Environment.MachineName&&inventory.ContainsKey("RAM total")&&inventory.ContainsKey("Sistema operacional"),"inventario Windows coleta host, sistema e RAM reais");Check(inventory.ContainsKey("Usuário conectado"),"inventario inclui campo de usuario da sessao");Protocol();EnrollmentTests();TeamTests();RangeTests();MessagingTests();await InventoryTests();TechnicianSetupTests();return 0;}
             if(args[0]=="template"){InstallerPackage.CreateTemplate(args[1],args[2],args[3]);return 0;}
             if(args[0]=="package"){using var creator=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Preparador");InstallerPackage.Personalize(args[1],args[2],Enrollment.Create(creator,[],"Teste"));return 0;}
             if(args[0]=="live-team"){await LiveTeam(args[1],args[2]);return 0;}
@@ -310,6 +315,12 @@ static class Tests
             technician.Credential=TeamAccess.Authorize(code,technician,root);
             using var client=new RemoteClient(found!,technician);
             using var info=await client.Request(HttpMethod.Get,"/info");
+            using(var payload=JsonDocument.Parse(await info.Content.ReadAsStringAsync()))
+            {
+                Check(payload.RootElement.TryGetProperty("sessionUser",out var login)&&login.ValueKind==JsonValueKind.String,"agente real transmite usuario da sessao na presenca autenticada");
+                string expectedUser=MachineInventory.SessionUser();
+                if(expectedUser.Length>0)Check(login.GetString()==expectedUser,"login remoto corresponde a sessao Windows do agente de teste");
+            }
             await client.Start();Check(client.Session?.TechnicianName==technician.Public.Name,"agente real reconhece nome do tecnico "+(i+1));await client.Stop();
         }
         Check(before==File.ReadAllText(configFile),"seis tecnicos conectam sem reinstalar nem alterar configuracao do cliente");
