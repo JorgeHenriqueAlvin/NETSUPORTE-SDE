@@ -306,7 +306,10 @@ sealed class Technician:Form
     {
         if(scanning is not null||closing)return Task.CompletedTask;
         var path=Path.Combine(folder,"scan-ranges.json");
-        var networks=IPv4Range.LocalCidrs(true).Concat(File.Exists(path)?Json.Read<string[]>(path):Array.Empty<string>()).Distinct().ToArray();
+        // Automatic discovery must stay on the effective subnets assigned to the
+        // active interfaces. Broader ranges are an explicit operator choice in
+        // the IP-scan dialog, not an implicit expansion of the local network.
+        var networks=IPv4Range.LocalCidrs().Concat(File.Exists(path)?Json.Read<string[]>(path):Array.Empty<string>()).Distinct().ToArray();
         return Scan(networks.Select(s=>IPv4Range.Parse(s)).ToArray());
     }
     async Task Scan(IPv4Range[] ranges)

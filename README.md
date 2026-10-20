@@ -61,8 +61,8 @@ O agente precisa estar executando, pertencer à equipe autorizada e estar acess�
 ## Descoberta e varredura de IP
 
 - O console envia descoberta UDP autenticada a cada cinco segundos.
-- Ao abrir, também pesquisa os IPs das redes privadas locais pela porta **TCP 7443**, sem depender de ping ou broadcast.
-- A busca inicial usa a máscara da interface até o limite de **/22 por interface**. Por exemplo, uma interface /23 pesquisa seus 510 endereços de host.
+- Ao abrir, pesquisa somente os IPs da máscara efetiva das interfaces privadas locais pela porta **TCP 7443**, sem depender de ping ou broadcast. Faixas mais amplas ou outras VLANs só entram quando o operador as informa explicitamente em **Varredura de IP**.
+- A busca inicial usa a máscara efetiva da interface. Por exemplo, uma interface /23 pesquisa seus 510 endereços de host.
 - Para pesquisar uma rede maior, outra VLAN ou uma faixa específica, clique em **Varredura de IP**. Exemplos: `10.37.2.0/23`, `10.37.2.1-10.37.3.254`. Separe várias faixas com ponto e vírgula.
 - A faixa escolhida é lembrada neste console e repetida a cada dois minutos. O console verifica a presença dos agentes já conhecidos durante o uso.
 - Há progresso, filtro por nome/setor/IP e botão **Parar varredura**.
