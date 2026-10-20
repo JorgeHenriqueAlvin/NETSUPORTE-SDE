@@ -41,6 +41,8 @@ sealed class Agent:Form
     readonly Dictionary<string,DateTimeOffset> lastAnnouncement=[];
     DateTimeOffset activity;
     bool unavailable,capturing;
+    DateTimeOffset idleSince=DateTimeOffset.UtcNow;
+    bool maintenance;
     readonly HashSet<int> heldKeys=[];
     readonly HashSet<int> heldMouse=[];
     public Agent(string path)
@@ -62,7 +64,27 @@ sealed class Agent:Form
         tray.Icon=idleIcon;tray.ContextMenuStrip=menu;
         tray.DoubleClick+=(_,_)=>{if(chat is not null){chat.Show();chat.Activate();}};
         Shown+=(_,_)=>{Hide();_=Listen();};
-        clock.Tick+=(_,_)=>{if(session is not null && (session.Expires<=DateTimeOffset.UtcNow||DateTimeOffset.UtcNow-activity>TimeSpan.FromSeconds(20)))End("expired_or_disconnected");};clock.Start();
+        clock.Tick+=(_,_)=>{
+            if(session is not null && (session.Expires<=DateTimeOffset.UtcNow||DateTimeOffset.UtcNow-activity>TimeSpan.FromSeconds(20)))End("expired_or_disconnected");
+            if(!maintenance&&serial.CurrentCount>0&&session is null&&DateTimeOffset.UtcNow-idleSince>TimeSpan.FromSeconds(60))
+            {
+                var root=Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,".."));
+                if(OperationalData.MaintenanceRequested(root,DateTimeOffset.UtcNow))
+                {
+                    try
+                    {
+                        var script=Path.Combine(root,"scripts","Resume-Agent.ps1");
+                        if(!File.Exists(script))return;
+                        var start=new System.Diagnostics.ProcessStartInfo("powershell.exe"){UseShellExecute=false,CreateNoWindow=true};
+                        foreach(var arg in new[]{"-NoProfile","-NonInteractive","-File",script})start.ArgumentList.Add(arg);
+                        using var resume=System.Diagnostics.Process.Start(start);
+                        if(resume is null)return;
+                        maintenance=true;Audit("update_idle_shutdown","atualizador");Close();
+                    }
+                    catch{ /* Keep supporting if the resume helper cannot start. */ }
+                }
+            }
+        };clock.Start();
         Microsoft.Win32.SystemEvents.SessionSwitch+=SessionChanged;
         FormClosed+=(_,_)=>{End("agent_closed");Microsoft.Win32.SystemEvents.SessionSwitch-=SessionChanged;listener.Close();discovery?.Dispose();chat?.Dispose();announcements?.Dispose();menu.Dispose();tray.Dispose();idleIcon.Dispose();activeIcon.Dispose();clock.Dispose();};
     }
@@ -73,10 +95,10 @@ sealed class Agent:Form
         {unavailable=true;End("workstation_unavailable");}
         if(e.Reason is Microsoft.Win32.SessionSwitchReason.SessionUnlock or Microsoft.Win32.SessionSwitchReason.ConsoleConnect or Microsoft.Win32.SessionSwitchReason.RemoteConnect)unavailable=false;
     }
-    void Audit(string action,string technician,string detail="")=>File.AppendAllText(log,JsonSerializer.Serialize(new{at=DateTimeOffset.UtcNow,action,technician,machine=config.Device.Name,config.Device.Sector,detail},new JsonSerializerOptions(Json.Options){WriteIndented=false})+"\n");
+    void Audit(string action,string technician,string detail="")=>OperationalData.Write(log,new{id=Guid.NewGuid().ToString("N"),at=DateTimeOffset.UtcNow,action,technician,machine=config.Device.Name,deviceId=config.Device.Id,config.Device.Sector,detail});
     void End(string reason)
     {
-        var previous=session;session=null;
+        var previous=session;session=null;if(previous is not null)idleSince=DateTimeOffset.UtcNow;
         if(previous is not null)
         {
             foreach(int k in heldKeys)try{Native.Apply(new("keyUp",Key:k));}catch{}
@@ -118,7 +140,14 @@ sealed class Agent:Form
             var tech=verifier.Verify(H("X-Technician"),H("X-Device"),c.Request.HttpMethod,c.Request.RawUrl??"/",body,H("X-Session"),H("X-Time"),H("X-Nonce"),H("X-Signature"),H("X-Team-Credential"));
             if(tech is null){await Reply(c.Response,403,new{error="Técnico não autorizado. Verifique o código da equipe no console."});return;}
             user=tech.Name;var path=c.Request.Url!.AbsolutePath;var method=c.Request.HttpMethod;
-            if(path=="/info" && method=="GET") {await Reply(c.Response,200,new{config.Device.Id,config.Device.Name,config.Device.Sector,hostname=Environment.MachineName,sessionUser=MachineInventory.SessionUser(),description=MachineInventory.Description(),os=System.Runtime.InteropServices.RuntimeInformation.OSDescription,osVersion=Environment.OSVersion.VersionString,version=System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3),capabilities=new[]{"chat","announcements","announcement-images","inventory"},available=!unavailable&&Native.DesktopAvailable()});return;}
+            if(path=="/info" && method=="GET") {await Reply(c.Response,200,new{config.Device.Id,config.Device.Name,config.Device.Sector,hostname=Environment.MachineName,sessionUser=MachineInventory.SessionUser(),description=MachineInventory.Description(),os=System.Runtime.InteropServices.RuntimeInformation.OSDescription,osVersion=Environment.OSVersion.VersionString,version=System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3),capabilities=new[]{"chat","announcements","announcement-images","inventory","operations"},available=!unavailable&&Native.DesktopAvailable()});return;}
+            if(path=="/health"&&method=="GET")
+            {
+                await Reply(c.Response,200,new{deviceId=config.Device.Id,hostname=Environment.MachineName,version=typeof(Agent).Assembly.GetName().Version?.ToString(3),
+                    activeSession=session is not null,desktopAvailable=!unavailable&&Native.DesktopAvailable(),at=DateTimeOffset.UtcNow,
+                    update=OperationalData.UpdateStatus(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,"..")))});return;
+            }
+            if(path=="/audit"&&method=="GET"){await Reply(c.Response,200,OperationalData.Tail(log));return;}
             if(path=="/inventory"&&method=="GET"){var inventory=MachineInventory.Collect();Audit("inventory_read",user);await Reply(c.Response,200,inventory);return;}
             if(path=="/announcement"&&method=="POST")
             {

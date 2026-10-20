@@ -8,6 +8,7 @@ on:
       - '.github/workflows/windows-build.yml'
       - 'installer/**'
       - 'tests/**'
+      - 'tests-operations/**'
       - 'bootstrapper/**'
 permissions:
   contents: write
@@ -30,6 +31,8 @@ jobs:
             [System.Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$tokens,[ref]$errors) | Out-Null
             if ($errors.Count) { throw ($errors | Out-String) }
           }
+      - name: Testar auditoria, manutencao e politica de presenca
+        run: dotnet run --project tests-operations/Operations.Tests.csproj -c Release
       - name: Compilar aplicativos Windows
         shell: pwsh
         run: ./scripts/Build.ps1
@@ -68,7 +71,7 @@ jobs:
       - name: Verificar pacote Cliente válido, ausente, corrompido e incompatível
         shell: pwsh
         run: |
-          dotnet run --project tests/SdeSuporte.Tests.csproj -c Release -- client-package release/SDE-Suporte-Cliente-Instalar.exe 0.12.13
+          dotnet run --project tests/SdeSuporte.Tests.csproj -c Release -- client-package release/SDE-Suporte-Cliente-Instalar.exe 0.12.14
           if ($LASTEXITCODE -ne 0) { throw 'Verificacao de pacote e persistencia falhou.' }
       - name: Testar instalacao e remocao da versao Tecnico
         shell: pwsh
@@ -96,7 +99,7 @@ jobs:
           (Get-Item "$target\Packages\SDE-Suporte-Cliente-Instalar.exe").LastWriteTime = (Get-Date).AddDays(2)
           $repair = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$target") -PassThru -Wait
           if ($repair.ExitCode -ne 0) { throw 'Reinstalacao do Tecnico falhou.' }
-          dotnet run --project tests/SdeSuporte.Tests.csproj -c Release -- client-package "$target\Packages\SDE-Suporte-Cliente-Instalar.exe" 0.12.13
+          dotnet run --project tests/SdeSuporte.Tests.csproj -c Release -- client-package "$target\Packages\SDE-Suporte-Cliente-Instalar.exe" 0.12.14
           if ($LASTEXITCODE -ne 0) { throw 'Atualizacao nao recuperou pacote embutido.' }
           $uninstall = Start-Process "$target\unins000.exe" -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
           if ($uninstall.ExitCode -ne 0) { throw "Desinstalacao falhou: $($uninstall.ExitCode)" }

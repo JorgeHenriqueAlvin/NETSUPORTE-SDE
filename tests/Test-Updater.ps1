@@ -41,6 +41,21 @@ try {
     & "$fixture\scripts\Update-Sde.ps1"
     if ((Get-Content "$fixture\UpdateCache\update.log" -Raw) -notlike '*aguardando aplicativos fechados*') { throw 'Atualizacao nao foi adiada durante uso.' }
 
+    $status=Get-Content "$fixture\UpdateCache\status.json" -Raw | ConvertFrom-Json
+    if($status.state -ne 'Deferred'){throw 'Estado de adiamento nao foi registrado.'}
+
+    # Reproduce a damaged embedded Client with the exact same console version.
+    New-Item "$fixture\Technician","$fixture\Packages" -ItemType Directory -Force | Out-Null
+    Copy-Item "$PSScriptRoot\..\dist\Technician\SDE-Suporte-Tecnico.exe" "$fixture\Technician"
+    $version=([Diagnostics.FileVersionInfo]::GetVersionInfo("$fixture\Technician\SDE-Suporte-Tecnico.exe")).FileVersion
+    $manifest.version=([version]$version).ToString(3)
+    $manifest.assets.'SDE-Suporte-Tecnico-Base.exe'=$manifest.assets.'SDE-Suporte-Cliente-Instalar.exe'
+    [IO.File]::WriteAllText("$fixture\Packages\SDE-Suporte-Cliente-Instalar.exe",'damaged')
+    [IO.File]::WriteAllText("$fixture\Packages\SDE-Suporte-Cliente-Instalar.exe.sha256",('0'*64))
+    $manifest | ConvertTo-Json -Depth 6 | Set-Content $servedManifest
+    $repair=& "$fixture\scripts\Update-Sde.ps1" -CheckOnly
+    if($repair -notlike '*Technician*Reparar=True*'){throw 'Reparo de pacote da mesma versao nao identificado.'}
+
     $manifest.version='0.0.1'
     $manifest | ConvertTo-Json -Depth 6 | Set-Content $servedManifest
     if (& "$fixture\scripts\Update-Sde.ps1" -CheckOnly) { throw 'Atualizador permitiu downgrade.' }

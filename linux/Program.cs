@@ -59,11 +59,12 @@ var verifier=new RequestVerifier(config.Technicians,config.Device.Id,config.Enro
 using var gate=new SemaphoreSlim(1);
 RemoteSession? session=null;
 DateTimeOffset activity=DateTimeOffset.UtcNow;
+DateTimeOffset idleSince=DateTimeOffset.UtcNow;
 var history=new List<ChatMessage>(); long sequence=0;
 var held=new Dictionary<string,InputCommand>();
 var notices=new Dictionary<string,DateTimeOffset>();
 var lastNotice=new Dictionary<string,DateTimeOffset>();
-void Audit(string action,string technician,string detail="")=>File.AppendAllText(Path.Combine(state,"audit.jsonl"),JsonSerializer.Serialize(new {at=DateTimeOffset.UtcNow,action,technician,machine=config.Device.Name,detail})+"\n");
+void Audit(string action,string technician,string detail="")=>OperationalData.Write(Path.Combine(state,"audit.jsonl"),new {id=Guid.NewGuid().ToString("N"),at=DateTimeOffset.UtcNow,action,technician,machine=config.Device.Name,deviceId=config.Device.Id,detail});
 ChatMessage Message(string name,string text)
 {
     if(string.IsNullOrWhiteSpace(text)||text.Length>2000) throw new ArgumentException("Mensagem inválida.");
@@ -71,7 +72,7 @@ ChatMessage Message(string name,string text)
 }
 async Task End(string reason)
 {
-    var previous=session;session=null;
+    var previous=session;session=null;if(previous is not null)idleSince=DateTimeOffset.UtcNow;
     foreach(var input in held.Values)try{await desktop.Call("input",input:input with {Kind=input.Kind=="down"?"up":"keyUp",Layout=""});}catch{}
     held.Clear(); history.Clear();
     if(previous is not null){Audit(reason,previous.TechnicianName);desktop.Send(new{kind="session",name=""});}
@@ -96,7 +97,9 @@ var watch=Task.Run(async()=>{
     using var timer=new PeriodicTimer(TimeSpan.FromSeconds(1));
     try{while(await timer.WaitForNextTickAsync(shutdown.Token)){
         if(!await gate.WaitAsync(0))continue;
-        try{if(session is not null&&(session.Expires<=DateTimeOffset.UtcNow||DateTimeOffset.UtcNow-activity>TimeSpan.FromSeconds(20)||!await Available()))await End("expired_or_desktop_unavailable");}finally{gate.Release();}
+        try{if(session is not null&&(session.Expires<=DateTimeOffset.UtcNow||DateTimeOffset.UtcNow-activity>TimeSpan.FromSeconds(20)||!await Available()))await End("expired_or_desktop_unavailable");
+        if(session is null&&DateTimeOffset.UtcNow-idleSince>TimeSpan.FromSeconds(60)&&File.Exists(Path.Combine(state,"UpdateCache","pending.json"))){Environment.ExitCode=75;app.Lifetime.StopApplication();break;}
+        }finally{gate.Release();}
     }}catch(OperationCanceledException){}
 });
 app.Run(async context=>{
@@ -114,7 +117,9 @@ app.Run(async context=>{
         string H(string name)=>req.Headers[name].ToString();
         var tech=verifier.Verify(H("X-Technician"),H("X-Device"),req.Method,path+req.QueryString,body,H("X-Session"),H("X-Time"),H("X-Nonce"),H("X-Signature"),H("X-Team-Credential"));
         if(tech is null){await Reply(403,new{error="Técnico não autorizado."});return;}user=tech.Name;
-        if(path=="/info"&&req.Method=="GET"){await Reply(200,new{config.Device.Id,config.Device.Name,config.Device.Sector,hostname=Environment.MachineName,description=MachineInventory.Description(),os=MachineInventory.OperatingSystemName(),osVersion=Environment.OSVersion.VersionString,version="0.12.9-linux",capabilities=new[]{"chat","announcements","announcement-images","inventory"},available=await Available()});return;}
+        if(path=="/info"&&req.Method=="GET"){await Reply(200,new{config.Device.Id,config.Device.Name,config.Device.Sector,hostname=Environment.MachineName,description=MachineInventory.Description(),os=MachineInventory.OperatingSystemName(),osVersion=Environment.OSVersion.VersionString,version=typeof(MachineInventory).Assembly.GetName().Version?.ToString(3),capabilities=new[]{"chat","announcements","announcement-images","inventory","operations"},available=await Available()});return;}
+        if(path=="/health"&&req.Method=="GET"){await Reply(200,new{deviceId=config.Device.Id,hostname=Environment.MachineName,version=typeof(MachineInventory).Assembly.GetName().Version?.ToString(3),activeSession=session is not null,desktopAvailable=await Available(),at=DateTimeOffset.UtcNow,update=OperationalData.UpdateStatus(state)});return;}
+        if(path=="/audit"&&req.Method=="GET"){await Reply(200,OperationalData.Tail(Path.Combine(state,"audit.jsonl")));return;}
         if(path=="/inventory"&&req.Method=="GET"){var inventory=MachineInventory.Collect();Audit("inventory_read",user);await Reply(200,inventory);return;}
         if(path=="/announcement"&&req.Method=="POST"){
             var notice=JsonSerializer.Deserialize<Notice>(body,Json.Options)??throw new ArgumentException("Aviso inválido.");

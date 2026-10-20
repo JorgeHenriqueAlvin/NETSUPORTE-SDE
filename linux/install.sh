@@ -16,6 +16,15 @@ sudo apt-get update
 sudo apt-get install -y python3 python3-tk python3-pil python3-pil.imagetk xdotool x11-xserver-utils libicu-dev libssl-dev zlib1g util-linux
 install_dir="$HOME/.local/lib/sde-suporte"
 mkdir -p "$install_dir" "$HOME/.local/bin" "$HOME/.config/autostart"
+if [[ -f "$install_dir/supervisor.pid" ]]; then
+ supervisor=$(cat "$install_dir/supervisor.pid")
+ if [[ $supervisor =~ ^[0-9]+$ && -r /proc/$supervisor/cmdline ]] && tr '\0' '\n' < "/proc/$supervisor/cmdline" | grep -Fxq "$HOME/.local/bin/sde-suporte-cliente"; then
+  kill "$supervisor"
+  for _ in {1..20}; do kill -0 "$supervisor" 2>/dev/null || break; sleep 0.25; done
+  if kill -0 "$supervisor" 2>/dev/null; then echo 'Supervisor nao encerrou; tente novamente.' >&2; exit 1; fi
+ fi
+fi
+
 # Stop only the installed agent for this user before replacing its files.
 if [[ -f "$install_dir/agent.pid" ]]; then
   agent_pid=$(cat "$install_dir/agent.pid")
@@ -27,17 +36,7 @@ if [[ -f "$install_dir/agent.pid" ]]; then
 fi
 cp -a "$source_dir/." "$install_dir/"
 chmod 700 "$install_dir" "$install_dir/SDE-Suporte-Cliente-Linux"
-cat > "$HOME/.local/bin/sde-suporte-cliente" <<'LAUNCH'
-#!/usr/bin/env bash
-set -euo pipefail
-install_dir="$HOME/.local/lib/sde-suporte"
-state_dir="$HOME/.local/share/SdeSuporte"
-mkdir -p "$state_dir"; chmod 700 "$state_dir"
-exec 9>"$state_dir/agent.lock"
-flock -n 9 || exit 0
-printf '%s\n' "$$" > "$install_dir/agent.pid"
-exec "$install_dir/SDE-Suporte-Cliente-Linux" >> "$state_dir/startup.log" 2>&1
-LAUNCH
+cp "$source_dir/launch.sh" "$HOME/.local/bin/sde-suporte-cliente"
 chmod 700 "$HOME/.local/bin/sde-suporte-cliente"
 # Desktop Exec field codes and quoting are escaped, including home paths with spaces.
 python3 - "$HOME/.local/bin/sde-suporte-cliente" "$HOME/.config/autostart/sde-suporte.desktop" <<'PY'
@@ -47,5 +46,5 @@ with open(sys.argv[2],'w') as f:
     f.write('[Desktop Entry]\nType=Application\nName=SDE Suporte Cliente\nExec="'+exe+'"\nTerminal=false\nX-GNOME-Autostart-enabled=true\n')
 PY
 "$HOME/.local/bin/sde-suporte-cliente" &
-echo 'Cliente instalado. Ele inicia ao entrar no desktop X11.'
+echo 'Cliente instalado com reinicio apos falha e atualizacao verificada quando ocioso. Inicia ao entrar no desktop X11.'
 echo 'Se houver firewall, permita TCP 7443 e UDP 7446 somente a partir da rede da TI.'

@@ -73,7 +73,10 @@ sealed class Technician:Form
     readonly Dictionary<string,DateTimeOffset> online=[];
     readonly Dictionary<string,DateTimeOffset> probed=[];
     readonly HashSet<string> checking=[];
-    readonly SemaphoreSlim probes=new(8,8);
+    readonly SemaphoreSlim probes=new(32,32);
+    readonly Dictionary<string,int> probeFailures=new();
+    readonly Dictionary<string,DateTimeOffset> nextProbe=new();
+    bool observationsDirty;
     readonly System.Windows.Forms.Timer presence=new(){Interval=4000};
     readonly Label scanStatus=new(){Dock=DockStyle.Bottom,Height=27,Text="Buscando agentes da equipe na rede..."};
     readonly System.Windows.Forms.Timer scanClock=new(){Interval=120000};
@@ -115,8 +118,10 @@ sealed class Technician:Form
         monitorBar.Controls.Add(new Label{Text="Monitor do cliente",AutoSize=true,Margin=new Padding(0,7,10,0)});monitorBar.Controls.Add(monitorPicker);
         monitorPicker.SelectedIndexChanged+=(_,_)=>{if(!updatingMonitors&&monitorPicker.SelectedItem is RemoteMonitor m){selectedMonitor=m.Id;screen.Focus();}};
         remotePage.Controls.Add(screen);remotePage.Controls.Add(monitorBar);chatPage.Controls.Add(chatPanel);
+        var operationsPage=new TabPage("Estado e logs");
+        operationsPage.Controls.Add(new OperationsPanel(identity,()=>devices.ToArray(),IsOnline,()=>authorities.Select(a=>a.Id).ToArray(),lifetime.Token){Dock=DockStyle.Fill});
         var deploymentPage=new TabPage("Implantar Clientes");deploymentPage.Controls.Add(new DeploymentPanel());
-        tabs.TabPages.AddRange([remotePage,chatPage,noticesPage,deploymentPage,UpdatesPage()]);
+        tabs.TabPages.AddRange([remotePage,chatPage,noticesPage,deploymentPage,operationsPage,UpdatesPage()]);
         var noticeHeader=new Label{Dock=DockStyle.Top,Height=100,Text="Marque os clientes ou use Selecionar todos. Envie texto, foto ou os dois.\nO funcionário verá apenas “Aviso da TI”, sem o nome do remetente. Entrega não significa leitura.",Padding=new Padding(8)};
         noticesPage.Padding=new Padding(12);noticesPage.Controls.Add(noticeResults);noticesPage.Controls.Add(noticeTargets);noticesPage.Controls.Add(sendNotice);noticesPage.Controls.Add(noticeText);noticesPage.Controls.Add(noticePreview);
         var photoBar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=45};
@@ -167,7 +172,8 @@ sealed class Technician:Form
         scanClock.Tick+=async(_,_)=>{if(scanning is null&&!closing)await Safe(ScanLocal);};scanClock.Start();
         presence.Tick+=(_,_)=>{
             Filter(search.Text);if(dirty){SaveDevices();dirty=false;}
-            foreach(var device in devices.ToArray())if(!probed.TryGetValue(device.Id,out var at)||DateTimeOffset.UtcNow-at>TimeSpan.FromSeconds(12))Discovered(device);
+            if(observationsDirty){try{Json.Write(ObservationsPath,observations);observationsDirty=false;}catch{}}
+            foreach(var device in devices.ToArray())if(!nextProbe.TryGetValue(device.Id,out var next)||DateTimeOffset.UtcNow>=next)Discovered(device);
         };presence.Start();
         timer.Tick+=async(_,_)=>{if(!loading&&client?.Session is not null&&(fullScreen is not null||tabs.SelectedTab==remotePage))await Safe(Frame);};
         screen.MouseDown+=async(_,e)=>{screen.Focus();var p=Map(e.X,e.Y);if(p is not null)await Safe(()=>Input(new("down",p.Value.X,p.Value.Y,Key:e.Button==MouseButtons.Right?2:1)));};
@@ -185,7 +191,7 @@ sealed class Technician:Form
         var page=new TabPage("Atualizações");
         var title=new Label{Dock=DockStyle.Top,Height=65,Text="Seu suporte sempre atualizado",Font=new Font("Segoe UI Semibold",19),Padding=new Padding(12)};
         var installed=System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3)??"desconhecida";
-        var description=new Label{Dock=DockStyle.Top,Height=160,Padding=new Padding(12),Text=$"Versão instalada: {installed}\n\nA atualização automática é habilitada pelo instalador. Novas versões são verificadas no boot e a cada hora no GitHub, com verificação de integridade.\n\nAs atualizações são instaladas quando Cliente e Técnico estão fechados, inclusive na próxima inicialização. A máquina precisa de acesso à internet para baixar as versões."};
+        var description=new Label{Dock=DockStyle.Top,Height=160,Padding=new Padding(12),Text=$"Versão instalada: {installed}\n\nA atualização automática é habilitada pelo instalador. Novas versões são verificadas no boot e a cada cinco minutos no GitHub, com verificação de integridade.\n\nClientes novos atualizam quando ficam sem atendimento e reabrem na sessão do funcionário. Feche o Técnico para atualizar o console. Veja o resultado por máquina na aba Estado e logs. A máquina precisa de acesso à internet para baixar as versões."};
         var result=new TextBox{Dock=DockStyle.Fill,Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical};
         var check=new Button{Dock=DockStyle.Top,Height=45,Text="Verificar nova versão"};
         check.Click+=async(_,_)=>{check.Enabled=false;try{using var http=new HttpClient{Timeout=TimeSpan.FromSeconds(20)};using var data=JsonDocument.Parse(await http.GetStringAsync("https://github.com/JorgeHenriqueAlvin/NETSUPORTE-SDE/releases/latest/download/update.json"));string version=data.RootElement.GetProperty("version").GetString()??"";var current=System.Reflection.Assembly.GetExecutingAssembly().GetName().Version??new Version(0,0);result.Text=Version.TryParse(version,out var next)&&next>current?$"Versão {version} disponível. O atualizador fará a instalação automaticamente quando os aplicativos estiverem fechados.":$"Você está usando a versão mais recente ({current.ToString(3)}).";}catch(Exception){result.Text="Não foi possível consultar o GitHub. O suporte na rede local continua disponível; o atualizador tentará novamente depois.";}finally{if(!check.IsDisposed)check.Enabled=true;}};
@@ -195,7 +201,7 @@ sealed class Technician:Form
                 var start=new System.Diagnostics.ProcessStartInfo("schtasks.exe"){UseShellExecute=false,CreateNoWindow=true};
                 foreach(var arg in new[]{"/Run","/TN","SDE-Suporte-Atualizacao"})start.ArgumentList.Add(arg);
                 using var process=System.Diagnostics.Process.Start(start);
-                result.Text="Solicitação enviada à tarefa de atualização registrada. Feche o Técnico para permitir a instalação. Consulte o log do atualizador para confirmar o resultado. Se o pacote da versão atual estiver danificado, reinstale o Técnico oficial da mesma versão.";
+                result.Text="Solicitação enviada à tarefa de atualização registrada. Feche o Técnico para permitir a instalação. Consulte o log do atualizador para confirmar o resultado. O atualizador também verifica e recupera o pacote Cliente danificado da mesma versão. Veja o resultado na aba Estado e logs.";
             }catch(Exception e){result.Text="Não foi possível iniciar o atualizador: "+e.Message;}
         };
         page.Controls.Add(result);page.Controls.Add(recover);page.Controls.Add(check);page.Controls.Add(description);page.Controls.Add(title);return page;
@@ -311,7 +317,9 @@ sealed class Technician:Form
     {
         if(client?.Session is not null&&list.SelectedItem is Device active&&active.Id==d.Id)return;
         if(checking.Contains(d.Id)||!force&&probed.TryGetValue(d.Id,out var last)&&DateTimeOffset.UtcNow-last<TimeSpan.FromSeconds(7))return;
-        probed[d.Id]=DateTimeOffset.UtcNow;checking.Add(d.Id);await probes.WaitAsync();
+        probed[d.Id]=DateTimeOffset.UtcNow;checking.Add(d.Id);
+        bool acquired=false;
+        try{await probes.WaitAsync(lifetime.Token);acquired=true;}catch(OperationCanceledException){checking.Remove(d.Id);return;}
         try
         {
             if(closing||IsDisposed)return;
@@ -319,7 +327,7 @@ sealed class Technician:Form
             using var info=JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             if(info.RootElement.GetProperty("id").GetString()!=d.Id)throw new InvalidDataException("O IP responde com outro cadastro de agente; este registro pode ser antigo.");
             if(closing||IsDisposed)return;
-            online[d.Id]=DateTimeOffset.UtcNow;connectionErrors.Remove(d.Id);
+            online[d.Id]=DateTimeOffset.UtcNow;connectionErrors.Remove(d.Id);probeFailures[d.Id]=0;nextProbe[d.Id]=DateTimeOffset.UtcNow+PresencePolicy.RetryDelay(0);
             var root=info.RootElement;
             var previous=observations.GetValueOrDefault(d.Id);
             string Field(string key)=>root.TryGetProperty(key,out var value)&&value.ValueKind==JsonValueKind.String?value.GetString()??"":"";
@@ -340,18 +348,24 @@ sealed class Technician:Form
                 }
                 catch{ /* A failed inventory read does not invalidate a successful presence check. */ }
             }
-            Json.Write(ObservationsPath,observations);
+            observationsDirty=true;
             var existing=devices.FirstOrDefault(x=>x.Id==d.Id);
             if(existing!=d){devices.RemoveAll(x=>x.Id==d.Id);devices.Add(d);dirty=true;}
             Filter(search.Text);
-        }catch(HttpRequestException e)when(e.StatusCode==System.Net.HttpStatusCode.TooManyRequests){online[d.Id]=DateTimeOffset.UtcNow;if(!IsDisposed)list.Invalidate();}
+        }catch(HttpRequestException e)when(e.StatusCode==System.Net.HttpStatusCode.TooManyRequests){
+            nextProbe[d.Id]=DateTimeOffset.UtcNow.AddSeconds(15);
+            connectionErrors[d.Id]="Agente ocupado; aguardando nova consulta autenticada.";
+            if(!IsDisposed)list.Invalidate();
+        }
         catch(Exception e)
         {
             online.Remove(d.Id);
+            int failures=Math.Min(10,probeFailures.GetValueOrDefault(d.Id)+1);probeFailures[d.Id]=failures;
+            nextProbe[d.Id]=DateTimeOffset.UtcNow+PresencePolicy.RetryDelay(failures);
             connectionErrors[d.Id]=e is HttpRequestException h&&h.StatusCode is not null?$"HTTP {(int)h.StatusCode}: verifique autorização e versão do Cliente":e is InvalidDataException?e.Message:e is TaskCanceledException?"Agente não respondeu a tempo; confira se está aberto":e is HttpRequestException?"Sem conexão segura com o agente; confira IP, Cliente e firewall":"Não foi possível ler os dados do agente";
             if(!IsDisposed&&!closing)Filter(search.Text);
         }
-        finally{checking.Remove(d.Id);probes.Release();}
+        finally{checking.Remove(d.Id);if(acquired)probes.Release();}
     }
     void ExportIdentity()
     {

@@ -2,11 +2,11 @@ name: Raspberry Pi Client
 on:
   workflow_dispatch:
   push:
-    paths: ['linux/**', 'tests-linux/**', 'src/MachineInventory.cs', 'src/Protocol.cs', 'src/AgentConnection.cs', 'src/NetworkScanner.cs', 'src/Enrollment.cs', 'src/TeamAccess.cs', 'src/Discovery.cs', 'src/TeamDeployment.json', '.github/workflows/raspberry-client.yml']
+    paths: ['linux/**', 'src/Operations.cs', 'tests-operations/**', 'tests-linux/**', 'src/MachineInventory.cs', 'src/Protocol.cs', 'src/AgentConnection.cs', 'src/NetworkScanner.cs', 'src/Enrollment.cs', 'src/TeamAccess.cs', 'src/Discovery.cs', 'src/TeamDeployment.json', '.github/workflows/raspberry-client.yml']
   pull_request:
-    paths: ['linux/**', 'tests-linux/**', 'src/MachineInventory.cs', 'src/Protocol.cs', 'src/AgentConnection.cs', 'src/NetworkScanner.cs', 'src/Enrollment.cs', 'src/TeamAccess.cs', 'src/Discovery.cs', 'src/TeamDeployment.json', '.github/workflows/raspberry-client.yml']
+    paths: ['linux/**', 'src/Operations.cs', 'tests-operations/**', 'tests-linux/**', 'src/MachineInventory.cs', 'src/Protocol.cs', 'src/AgentConnection.cs', 'src/NetworkScanner.cs', 'src/Enrollment.cs', 'src/TeamAccess.cs', 'src/Discovery.cs', 'src/TeamDeployment.json', '.github/workflows/raspberry-client.yml']
 permissions:
-  contents: read
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -15,6 +15,8 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+      - run: dotnet run --project tests-operations/Operations.Tests.csproj -c Release
+      - run: bash -n linux/install.sh linux/uninstall.sh linux/launch.sh linux/diagnose.sh
       - run: dotnet build linux/SdeSuporte.Linux.csproj -c Release
       - run: python3 -m unittest discover -s linux/tests -p 'test_*.py'
       - name: Verify Windows-compatible signed protocol (mock desktop)
@@ -32,7 +34,7 @@ jobs:
       - name: Publish self-contained ARM64 client
         run: |
           dotnet publish linux/SdeSuporte.Linux.csproj -c Release -r linux-arm64 --self-contained true -o release/raspberry
-          cp linux/desktop.py linux/install.sh linux/uninstall.sh linux/README.md release/raspberry/
+          cp linux/desktop.py linux/install.sh linux/uninstall.sh linux/launch.sh linux/diagnose.sh linux/update.py linux/version.txt linux/README.md release/raspberry/
           chmod +x release/raspberry/SDE-Suporte-Cliente-Linux release/raspberry/*.sh
           tar -czf SDE-Suporte-Raspberry-Pi-ARM64.tar.gz -C release/raspberry .
           sha256sum SDE-Suporte-Raspberry-Pi-ARM64.tar.gz > SDE-Suporte-Raspberry-Pi-ARM64.tar.gz.sha256
@@ -42,3 +44,22 @@ jobs:
           path: |
             SDE-Suporte-Raspberry-Pi-ARM64.tar.gz
             SDE-Suporte-Raspberry-Pi-ARM64.tar.gz.sha256
+
+      - name: Publicar atualizacao Raspberry testada
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          package=Path("SDE-Suporte-Raspberry-Pi-ARM64.tar.gz")
+          Path("linux-update.json").write_text(json.dumps(dict(version=Path("linux/version.txt").read_text().strip(),asset=package.name,size=package.stat().st_size,sha256=hashlib.sha256(package.read_bytes()).hexdigest())))
+          PY
+          current=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          if [ "$current" != "$GITHUB_SHA" ]; then echo "Main mudou; publicacao ignorada."; exit 0; fi
+          if ! gh release view raspberry-stable >/dev/null 2>&1; then
+            gh release create raspberry-stable --target "$GITHUB_SHA" --title "Raspberry Pi ARM64" --notes "Agente X11 com atualizacao verificada quando ocioso. Bootstrap exige instalacao manual desta versao." --latest=false
+          fi
+          gh release upload raspberry-stable SDE-Suporte-Raspberry-Pi-ARM64.tar.gz SDE-Suporte-Raspberry-Pi-ARM64.tar.gz.sha256 --clobber
+          gh release upload raspberry-stable linux-update.json --clobber
