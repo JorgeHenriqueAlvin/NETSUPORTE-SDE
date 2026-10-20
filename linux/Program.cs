@@ -114,7 +114,7 @@ app.Run(async context=>{
         string H(string name)=>req.Headers[name].ToString();
         var tech=verifier.Verify(H("X-Technician"),H("X-Device"),req.Method,path+req.QueryString,body,H("X-Session"),H("X-Time"),H("X-Nonce"),H("X-Signature"),H("X-Team-Credential"));
         if(tech is null){await Reply(403,new{error="Técnico não autorizado."});return;}user=tech.Name;
-        if(path=="/info"&&req.Method=="GET"){await Reply(200,new{config.Device.Id,config.Device.Name,config.Device.Sector,version="0.12.8-linux",capabilities=new[]{"chat","announcements","announcement-images","inventory"},available=await Available()});return;}
+        if(path=="/info"&&req.Method=="GET"){await Reply(200,new{config.Device.Id,config.Device.Name,config.Device.Sector,hostname=Environment.MachineName,description=MachineInventory.Description(),os=MachineInventory.OperatingSystemName(),osVersion=Environment.OSVersion.VersionString,version="0.12.9-linux",capabilities=new[]{"chat","announcements","announcement-images","inventory"},available=await Available()});return;}
         if(path=="/inventory"&&req.Method=="GET"){var inventory=MachineInventory.Collect();Audit("inventory_read",user);await Reply(200,inventory);return;}
         if(path=="/announcement"&&req.Method=="POST"){
             var notice=JsonSerializer.Deserialize<Notice>(body,Json.Options)??throw new ArgumentException("Aviso inválido.");

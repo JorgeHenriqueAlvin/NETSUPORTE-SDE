@@ -118,7 +118,7 @@ sealed class Agent:Form
             var tech=verifier.Verify(H("X-Technician"),H("X-Device"),c.Request.HttpMethod,c.Request.RawUrl??"/",body,H("X-Session"),H("X-Time"),H("X-Nonce"),H("X-Signature"),H("X-Team-Credential"));
             if(tech is null){await Reply(c.Response,403,new{error="Técnico não autorizado. Verifique o código da equipe no console."});return;}
             user=tech.Name;var path=c.Request.Url!.AbsolutePath;var method=c.Request.HttpMethod;
-            if(path=="/info" && method=="GET") {await Reply(c.Response,200,new{config.Device.Id,config.Device.Name,config.Device.Sector,version=System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3),capabilities=new[]{"chat","announcements","announcement-images","inventory"},available=!unavailable&&Native.DesktopAvailable()});return;}
+            if(path=="/info" && method=="GET") {await Reply(c.Response,200,new{config.Device.Id,config.Device.Name,config.Device.Sector,hostname=Environment.MachineName,description=MachineInventory.Description(),os=System.Runtime.InteropServices.RuntimeInformation.OSDescription,osVersion=Environment.OSVersion.VersionString,version=System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3),capabilities=new[]{"chat","announcements","announcement-images","inventory"},available=!unavailable&&Native.DesktopAvailable()});return;}
             if(path=="/inventory"&&method=="GET"){var inventory=MachineInventory.Collect();Audit("inventory_read",user);await Reply(c.Response,200,inventory);return;}
             if(path=="/announcement"&&method=="POST")
             {

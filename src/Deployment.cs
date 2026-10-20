@@ -52,6 +52,7 @@ public record DeploymentResult(string Host,string Address,string State,string De
 sealed class DeploymentPanel:UserControl
 {
     readonly DataGridView grid=new(){Dock=DockStyle.Fill,AllowUserToAddRows=false,AllowUserToDeleteRows=false,RowHeadersVisible=false,AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill,SelectionMode=DataGridViewSelectionMode.FullRowSelect};
+    readonly TextBox search=new(){Width=220,PlaceholderText="Pesquisar IP ou nome descoberto"};
     readonly TextBox networks=new(){Width=300};
     readonly ComboBox mode=new(){Width=220,DropDownStyle=ComboBoxStyle.DropDownList};
     readonly Label status=new(){Dock=DockStyle.Bottom,Height=32,Text="Abra esta aba para procurar máquinas, mesmo sem o Cliente instalado."};
@@ -71,12 +72,16 @@ sealed class DeploymentPanel:UserControl
         var stop=new Button{Text="Parar busca",AutoSize=true};stop.Click+=(_,_)=>scan?.Cancel();
         var select=new Button{Text="Selecionar compatíveis",AutoSize=true};select.Click+=(_,_)=>{foreach(DataGridViewRow row in grid.Rows){var h=(NetworkHost)row.Tag!;row.Cells[0].Value=mode.SelectedIndex switch{0=>h.WinRmHttps,1=>h.WinRmKerberos,_=>h.Smb};}};
         mode.Items.AddRange(["HTTPS (sem exigir domínio)","Domínio (Kerberos)","SMB + Agendador (sem WinRM)"]);mode.SelectedIndex=2;
-        bar.Controls.AddRange([networks,find,stop,mode,select,install,preAuth,unAuth,updateNow]);
+        bar.Controls.AddRange([networks,find,stop,mode,select,install,preAuth,unAuth,updateNow,search]);
+        search.TextChanged+=(_,_)=>{grid.CurrentCell=null;foreach(DataGridViewRow row in grid.Rows)row.Visible=string.Join(" ",row.Cells.Cast<DataGridViewCell>().Skip(1).Select(c=>Convert.ToString(c.Value))).Contains(search.Text,StringComparison.CurrentCultureIgnoreCase);};
         grid.Columns.Add(new DataGridViewCheckBoxColumn{Name="Selecionar",FillWeight=35});
         grid.Columns.Add(new DataGridViewTextBoxColumn{Name="IP",ReadOnly=true,FillWeight=65});
         grid.Columns.Add(new DataGridViewTextBoxColumn{Name="Nome para autenticar",FillWeight=110});
         grid.Columns.Add(new DataGridViewTextBoxColumn{Name="Gerenciamento detectado",ReadOnly=true,FillWeight=120});
         grid.Columns.Add(new DataGridViewTextBoxColumn{Name="Resultado",ReadOnly=true,FillWeight=160});
+        grid.Columns.Add(new DataGridViewTextBoxColumn{Name="Hostname descoberto (DNS validado)",ReadOnly=true});
+        grid.Columns.Add(new DataGridViewTextBoxColumn{Name="Descrição descoberta",ReadOnly=true});
+        grid.Columns.Add(new DataGridViewTextBoxColumn{Name="Sistema descoberto",ReadOnly=true});
         grid.CurrentCellDirtyStateChanged+=(_,_)=>{if(grid.IsCurrentCellDirty)grid.CommitEdit(DataGridViewDataErrorContexts.Commit);};
         install.Click+=async(_,_)=>await Deploy();
         preAuth.Click+=async(_,_)=>await ApplyPolicy("PreAutorizado");
@@ -93,13 +98,15 @@ sealed class DeploymentPanel:UserControl
         {
             var ranges=networks.Text.Split(';',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries).Select(s=>IPv4Range.Parse(s)).ToArray();
             if(ranges.Sum(r=>r.Count)>65536)throw new ArgumentException("Pesquise até 65.536 IPs por vez.");
-            using var cancellation=new CancellationTokenSource();scan=cancellation;grid.Rows.Clear();install.Enabled=false;
+            using var cancellation=new CancellationTokenSource();scan=cancellation;install.Enabled=false;
             var progress=new Progress<ScanProgress>(p=>{if(!IsDisposed)status.Text=$"Localizando: {p.Checked}/{p.Total} IPs • {p.Found} máquina(s) encontrada(s)";});
             await NetworkInventory.Scan(ranges,host=>{
                 if(IsDisposed)return;
-                try{BeginInvoke(new Action(()=>{if(IsDisposed)return;int row=grid.Rows.Add(false,host.Address,host.Host,
-                    host.WinRmHttps?"WinRM HTTPS (5986)":host.WinRmKerberos?"WinRM domínio (5985)":host.Smb?"SMB (445); configure WinRM":"Respondeu; WinRM não detectado",
-                    host.AgentPort?"Porta 7443 aberta; confirme na lista de agentes":"Cliente não confirmado");grid.Rows[row].Tag=host;}));}catch(InvalidOperationException){}
+                try{BeginInvoke(new Action(()=>{if(IsDisposed)return;var existing=grid.Rows.Cast<DataGridViewRow>().FirstOrDefault(r=>((NetworkHost)r.Tag!).Address==host.Address);
+                    if(existing is not null){existing.Tag=host;existing.Cells[5].Value=host.Host==host.Address?"Nome não identificado":host.Host;return;}
+                    int row=grid.Rows.Add(false,host.Address,host.Host,
+                    host.WinRmHttps?"WinRM HTTPS (5986)":host.WinRmKerberos?"WinRM domínio (5985)":host.Smb?"SMB (445); Agendador remoto necessário":"Respondeu; gerenciamento não detectado",
+                    host.AgentPort?"Porta 7443 aberta; confirme na lista de agentes":"Cliente não confirmado",host.Host==host.Address?"Nome não identificado":host.Host,"Descrição não disponível","Sistema não identificado");grid.Rows[row].Tag=host;grid.Rows[row].Visible=(host.Address+" "+host.Host).Contains(search.Text,StringComparison.CurrentCultureIgnoreCase);}));}catch(InvalidOperationException){}
             },progress,cancellation.Token);
             if(!IsDisposed)status.Text=$"Busca concluída: {grid.Rows.Count} máquina(s). Confira os nomes e selecione os destinos.";
         }catch(OperationCanceledException){if(!IsDisposed)status.Text="Busca interrompida.";}
@@ -123,10 +130,15 @@ sealed class DeploymentPanel:UserControl
             string root=Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,".."));
             string installer=Path.Combine(root,"Packages","SDE-Suporte-Cliente-Instalar.exe");
             string script=Path.Combine(root,"scripts",mode.SelectedIndex==2?"Deploy-Agent-SMB.ps1":"Deploy-Agent.ps1");
-            string expected=File.ReadAllText(installer+".sha256").Trim();
-            if(expected.Length!=64||!expected.All(Uri.IsHexDigit)||Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(installer)))!=expected.ToUpperInvariant())throw new InvalidDataException("O pacote Cliente não passou na verificação. Reinstale o Técnico atualizado.");
+            string expected=await Task.Run(()=>ClientPackage.Verify(installer));
+            foreach(var target in targets)
+            {
+                using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                var addresses=await Dns.GetHostAddressesAsync(target.Host,timeout.Token);
+                if(!addresses.Contains(IPAddress.Parse(target.Address)))throw new InvalidDataException("O nome não corresponde ao IP selecionado. Atualize a descoberta antes de implantar.");
+            }
             string names=string.Join("\n",targets.Take(15).Select(t=>$"{t.Host} ({t.Address})"));
-            if(MessageBox.Show(this,$"Instalar/atualizar o Cliente em {targets.Length} máquina(s)?\n\n{names}\n\nSerá solicitada uma conta de administrador. A conexão precisa estar autorizada no WinRM. Máquinas sem usuário conectado ficarão disponíveis no próximo login.","Confirmar implantação",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
+            if(MessageBox.Show(this,$"Instalar/atualizar o Cliente em {targets.Length} máquina(s)?\n\n{names}\n\nSerá solicitada uma conta de administrador. {(mode.SelectedIndex==2?"SMB + Agendador exige conta administrativa, compartilhamento ADMIN$ e gerenciamento remoto do Agendador; não exige WinRM.":"A conexão precisa estar autorizada no WinRM.")} Máquinas sem usuário conectado ficarão disponíveis no próximo login.","Confirmar implantação",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
             deploying=true;install.Enabled=false;grid.Enabled=false;mode.Enabled=false;
             string folder=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"SdeSuporte","deployments",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(folder);
             string manifest=Path.Combine(folder,"request.json"),result=Path.Combine(folder,"results.json");

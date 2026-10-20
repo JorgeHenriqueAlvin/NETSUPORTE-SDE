@@ -8,6 +8,17 @@ namespace SdeSuporte;
 
 public static class MachineInventory
 {
+    public static string OperatingSystemName()
+    {
+        if(OperatingSystem.IsLinux())
+            try{return File.ReadLines("/etc/os-release").FirstOrDefault(x=>x.StartsWith("PRETTY_NAME="))?[12..].Trim('"')??RuntimeInformation.OSDescription;}catch{}
+        return RuntimeInformation.OSDescription;
+    }
+    public static string Description()
+    {
+        if(!OperatingSystem.IsWindows())return "";
+        try{using var key=Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters");return key?.GetValue("srvcomment")?.ToString()??"";}catch{return "";}
+    }
     public static Dictionary<string,string> Collect()
     {
         var data=new Dictionary<string,string>
@@ -21,8 +32,14 @@ public static class MachineInventory
             ["Atualizado em"]=DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm:ss zzz")
         };
         void Read(Action action){try{action();}catch{/* Unsupported or inaccessible fields remain unavailable. */}}
+        data["Versão do agente"]=typeof(MachineInventory).Assembly.GetName().Version?.ToString(3)??"Não informado";
         if(OperatingSystem.IsWindows())
         {
+            Read(()=>{
+                using var parameters=Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters");
+                var description=parameters?.GetValue("srvcomment")?.ToString();
+                if(!string.IsNullOrWhiteSpace(description))data["Descrição do equipamento"]=description;
+            });
             Read(()=>{
                 using var os=Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
                 string build=os?.GetValue("CurrentBuildNumber")?.ToString()??"";

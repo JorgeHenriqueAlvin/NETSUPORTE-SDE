@@ -65,6 +65,11 @@ jobs:
               [IO.File]::WriteAllText((Join-Path $PWD 'release/SDE-Suporte-Cliente-Instalar.exe.sha256'),$hash)
             }
           }
+      - name: Verificar pacote Cliente válido, ausente, corrompido e incompatível
+        shell: pwsh
+        run: |
+          dotnet run --project tests/SdeSuporte.Tests.csproj -c Release -- client-package release/SDE-Suporte-Cliente-Instalar.exe 0.12.9
+          if ($LASTEXITCODE -ne 0) { throw 'Verificacao de pacote e persistencia falhou.' }
       - name: Testar instalacao e remocao da versao Tecnico
         shell: pwsh
         run: |
@@ -82,6 +87,13 @@ jobs:
           if (-not (Test-Path "$target\Packages\SDE-Suporte-Cliente-Instalar.exe")) { throw 'Pacote para implantacao remota ausente.' }
           $expected = (Get-Content "$target\Packages\SDE-Suporte-Cliente-Instalar.exe.sha256" -Raw).Trim()
           if ((Get-FileHash "$target\Packages\SDE-Suporte-Cliente-Instalar.exe" -Algorithm SHA256).Hash -ne $expected) { throw 'Pacote remoto nao corresponde ao hash.' }
+          # Reproduce an incomplete previous update: executable present with newer timestamp and stale hash.
+          [IO.File]::WriteAllText("$target\Packages\SDE-Suporte-Cliente-Instalar.exe.sha256",('0' * 64))
+          (Get-Item "$target\Packages\SDE-Suporte-Cliente-Instalar.exe").LastWriteTime = (Get-Date).AddDays(2)
+          $repair = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$target") -PassThru -Wait
+          if ($repair.ExitCode -ne 0) { throw 'Reinstalacao do Tecnico falhou.' }
+          dotnet run --project tests/SdeSuporte.Tests.csproj -c Release -- client-package "$target\Packages\SDE-Suporte-Cliente-Instalar.exe" 0.12.9
+          if ($LASTEXITCODE -ne 0) { throw 'Atualizacao nao recuperou pacote embutido.' }
           $uninstall = Start-Process "$target\unins000.exe" -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
           if ($uninstall.ExitCode -ne 0) { throw "Desinstalacao falhou: $($uninstall.ExitCode)" }
           if (Test-Path "$target\Technician\SDE-Suporte-Tecnico.exe") { throw 'Console nao removido.' }
