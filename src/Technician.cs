@@ -5,6 +5,31 @@ sealed class Technician:Form
 {
     readonly string folder=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"SdeSuporte");
     readonly List<Device> devices=[];
+    Dictionary<string,MachineMetadata> metadata=new();
+    Dictionary<string,MachineObservation> observations=new();
+    string MetadataPath=>Path.Combine(folder,"machine-metadata.json");
+    string ObservationsPath=>Path.Combine(folder,"machine-observations.json");
+    MachineMetadata Admin(Device d)=>metadata.GetValueOrDefault(d.Id)??new();
+    string MachineLabel(Device d)
+    {
+        var a=Admin(d);var o=observations.GetValueOrDefault(d.Id);
+        string hostname=o?.Hostname??"Nome não identificado";
+        var last=online.TryGetValue(d.Id,out var live)?live:o?.Seen;
+        return $"{hostname} • Apelido: {a.Alias}\n{(a.Description.Length>0?a.Description:(string.IsNullOrEmpty(o?.Description)?"Descrição não disponível":o.Description))}\n{(a.Sector.Length>0?a.Sector:d.Sector)} • {a.Location} • {d.Host}\n{(string.IsNullOrEmpty(o?.OS)?"Sistema não identificado":o.OS)} • Agente: {o?.AgentVersion??"não informado"} • Última comunicação: {last?.ToLocalTime().ToString("g")??"não registrada"}";
+    }
+    void EditMetadata()
+    {
+        if(list.SelectedItem is not Device d)throw new InvalidOperationException("Selecione uma máquina.");
+        var a=Admin(d);
+        using var dialog=new Form{Text="Identificação administrativa",Width=540,Height=350,StartPosition=FormStartPosition.CenterParent};
+        var panel=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2,RowCount=5,Padding=new Padding(12)};
+        var values=new[]{a.Alias,a.Description,a.Sector,a.Location};var labels=new[]{"Apelido","Descrição administrativa","Setor","Local"};var boxes=new List<TextBox>();
+        for(int i=0;i<4;i++){panel.Controls.Add(new Label{Text=labels[i],AutoSize=true},0,i);var box=new TextBox{Text=values[i],Width=300,MaxLength=256};boxes.Add(box);panel.Controls.Add(box,1,i);}
+        var save=new Button{Text="Salvar",DialogResult=DialogResult.OK};panel.Controls.Add(save,1,4);dialog.Controls.Add(panel);dialog.AcceptButton=save;
+        if(dialog.ShowDialog(this)!=DialogResult.OK)return;
+        metadata[d.Id]=new(boxes[0].Text.Trim(),boxes[1].Text.Trim(),boxes[2].Text.Trim(),boxes[3].Text.Trim());
+        Json.Write(MetadataPath,metadata);Filter(search.Text);
+    }
     readonly ListBox list=new(){Dock=DockStyle.Fill};
     readonly TabControl tabs=new(){Dock=DockStyle.Fill};
     readonly TabPage remotePage=new("Tela remota");
@@ -28,7 +53,7 @@ sealed class Technician:Form
     bool updatingMonitors;
     readonly RemoteScreen screen=new(){Dock=DockStyle.Fill,BackColor=Color.FromArgb(15,27,45),SizeMode=PictureBoxSizeMode.Zoom,TabStop=true};
     readonly Label status=new(){Dock=DockStyle.Bottom,Height=32};
-    readonly TextBox search=new(){Dock=DockStyle.Top,PlaceholderText="Pesquisar computador, setor ou IP"};
+    readonly TextBox search=new(){Dock=DockStyle.Top,PlaceholderText="Pesquisar nome, apelido, descrição, setor, local ou IP"};
     readonly TextBox text=new(){Width=220,PlaceholderText="Texto para digitar no computador"};
     readonly Button connect=new(){Text="Conectar",AutoSize=true};
     readonly System.Windows.Forms.Timer timer=new(){Interval=100};
@@ -62,6 +87,7 @@ sealed class Technician:Form
         Add("Atualizar máquinas",async()=>{if(discovery is not null)await discovery.Search();await ScanLocal();});
         Add("Varredura de IP",ChooseScan);
         Add("Configurações da máquina",MachineDetails);
+        Add("Editar identificação",()=>{EditMetadata();return Task.CompletedTask;});
         Add("Buscar Raspberry Pi",FindLinuxAgents);
         Add("Adicionar Raspberry/Linux",AddLinuxAgent);
         Add("Parar varredura",()=>{scanning?.Cancel();return Task.CompletedTask;});
@@ -109,19 +135,19 @@ sealed class Technician:Form
         tabs.ItemSize=new Size(170,40);tabs.SizeMode=TabSizeMode.Fixed;
         tabs.DrawMode=TabDrawMode.OwnerDrawFixed;tabs.DrawItem+=(_,e)=>{var selected=e.Index==tabs.SelectedIndex;using var fill=new SolidBrush(selected?Color.White:Color.FromArgb(230,236,246));e.Graphics.FillRectangle(fill,e.Bounds);TextRenderer.DrawText(e.Graphics,tabs.TabPages[e.Index].Text,Font,e.Bounds,selected?Color.FromArgb(45,105,230):Color.FromArgb(65,81,108),TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);if(selected){using var line=new Pen(Color.FromArgb(45,105,230),3);e.Graphics.DrawLine(line,e.Bounds.Left,e.Bounds.Bottom-2,e.Bounds.Right,e.Bounds.Bottom-2);}};
         var brand=new Label{Text="SDE  /  SUPORTE\nCentral de atendimento",Dock=DockStyle.Top,Height=70,Padding=new Padding(10),Font=new Font("Segoe UI Semibold",13),ForeColor=Color.White,BackColor=Color.FromArgb(18,30,50)};sidebar.Controls.Add(brand);
+        if(File.Exists(MetadataPath))metadata=Json.Read<Dictionary<string,MachineMetadata>>(MetadataPath);
+        if(File.Exists(ObservationsPath))observations=Json.Read<Dictionary<string,MachineObservation>>(ObservationsPath);
         search.TextChanged+=(_,_)=>Filter(search.Text);
         if(File.Exists(Path.Combine(folder,"computers.json")))devices.AddRange(Json.Read<Device[]>(Path.Combine(folder,"computers.json")));
         if(File.Exists(Path.Combine(folder,"authorities.json")))authorities.AddRange(Json.Read<TechnicianKey[]>(Path.Combine(folder,"authorities.json")));
         authorities.RemoveAll(a=>a.Id==identity.Public.Id);authorities.Add(identity.Public);
         authorities.RemoveAll(a=>a.Id==TeamAccess.Root.Id);authorities.Add(TeamAccess.Root);
-        list.DrawMode=DrawMode.OwnerDrawFixed;list.ItemHeight=54;
+        list.DrawMode=DrawMode.OwnerDrawFixed;list.ItemHeight=125;
         list.DrawItem+=(_,e)=>{
             if(e.Index<0)return;e.DrawBackground();var d=(Device)list.Items[e.Index];
             bool available=online.TryGetValue(d.Id,out var seen)&&DateTimeOffset.UtcNow-seen<TimeSpan.FromSeconds(45);
             var color=(e.State&DrawItemState.Selected)!=0?SystemColors.HighlightText:Color.FromArgb(25,45,65);
-            TextRenderer.DrawText(e.Graphics,d.Name,Font,new Rectangle(e.Bounds.X+5,e.Bounds.Y+4,e.Bounds.Width-110,23),color,TextFormatFlags.EndEllipsis);
-            TextRenderer.DrawText(e.Graphics,available?"Conectado":"Desconectado",Font,new Rectangle(e.Bounds.Right-105,e.Bounds.Y+8,100,20),available?Color.ForestGreen:color,TextFormatFlags.EndEllipsis);
-            TextRenderer.DrawText(e.Graphics,$"{d.Sector} • {d.Host}",Font,new Rectangle(e.Bounds.X+5,e.Bounds.Y+27,e.Bounds.Width-10,22),color,TextFormatFlags.EndEllipsis);e.DrawFocusRectangle();
+            TextRenderer.DrawText(e.Graphics,MachineLabel(d)+"\n"+(available?"Agente conectado":"Agente sem comunicação recente"),Font,new Rectangle(e.Bounds.X+5,e.Bounds.Y+4,e.Bounds.Width-10,e.Bounds.Height-8),color,TextFormatFlags.EndEllipsis|TextFormatFlags.WordBreak);e.DrawFocusRectangle();
         };
         Filter("");status.Text=$"Técnico: {identity.Public.Name} | Instale o agente nos funcionários. As máquinas da equipe aparecem automaticamente.";
         Shown+=async(_,_)=>{
@@ -153,7 +179,16 @@ sealed class Technician:Form
         var result=new TextBox{Dock=DockStyle.Fill,Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical};
         var check=new Button{Dock=DockStyle.Top,Height=45,Text="Verificar nova versão"};
         check.Click+=async(_,_)=>{check.Enabled=false;try{using var http=new HttpClient{Timeout=TimeSpan.FromSeconds(20)};using var data=JsonDocument.Parse(await http.GetStringAsync("https://github.com/JorgeHenriqueAlvin/NETSUPORTE-SDE/releases/latest/download/update.json"));string version=data.RootElement.GetProperty("version").GetString()??"";var current=System.Reflection.Assembly.GetExecutingAssembly().GetName().Version??new Version(0,0);result.Text=Version.TryParse(version,out var next)&&next>current?$"Versão {version} disponível. O atualizador fará a instalação automaticamente quando os aplicativos estiverem fechados.":$"Você está usando a versão mais recente ({current.ToString(3)}).";}catch(Exception){result.Text="Não foi possível consultar o GitHub. O suporte na rede local continua disponível; o atualizador tentará novamente depois.";}finally{if(!check.IsDisposed)check.Enabled=true;}};
-        page.Controls.Add(result);page.Controls.Add(check);page.Controls.Add(description);page.Controls.Add(title);return page;
+        var recover=new Button{Dock=DockStyle.Top,Height=45,Text="Executar atualizador confiável / recuperar pacote"};
+        recover.Click+=(_,_)=>{
+            try{
+                var start=new System.Diagnostics.ProcessStartInfo("schtasks.exe"){UseShellExecute=false,CreateNoWindow=true};
+                foreach(var arg in new[]{"/Run","/TN","SDE-Suporte-Atualizacao"})start.ArgumentList.Add(arg);
+                using var process=System.Diagnostics.Process.Start(start);
+                result.Text="Solicitação enviada à tarefa de atualização registrada. Feche o Técnico para permitir a instalação. Consulte o log do atualizador para confirmar o resultado. Se o pacote da versão atual estiver danificado, reinstale o Técnico oficial da mesma versão.";
+            }catch(Exception e){result.Text="Não foi possível iniciar o atualizador: "+e.Message;}
+        };
+        page.Controls.Add(result);page.Controls.Add(recover);page.Controls.Add(check);page.Controls.Add(description);page.Controls.Add(title);return page;
     }
     void LoadTeamCredential()
     {
@@ -259,6 +294,11 @@ sealed class Technician:Form
             if(info.RootElement.GetProperty("id").GetString()!=d.Id)return;
             if(closing||IsDisposed)return;
             online[d.Id]=DateTimeOffset.UtcNow;
+            var root=info.RootElement;
+            var previous=observations.GetValueOrDefault(d.Id);
+            string Field(string key)=>root.TryGetProperty(key,out var value)?value.GetString()??"":"";
+            observations[d.Id]=new(Field("hostname") is {Length:>0} host?host:previous?.Hostname??"Nome não identificado",Field("description"),Field("os"),Field("osVersion"),Field("version"),DateTimeOffset.UtcNow);
+            Json.Write(ObservationsPath,observations);
             var existing=devices.FirstOrDefault(x=>x.Id==d.Id);
             if(existing!=d){devices.RemoveAll(x=>x.Id==d.Id);devices.Add(d);dirty=true;Filter(search.Text);}
             list.Invalidate();
@@ -291,7 +331,7 @@ sealed class Technician:Form
         var updated=d with{Host=address.Trim()};updated.Validate();devices.RemoveAll(x=>x.Id==d.Id);devices.Add(updated);SaveDevices();Filter("");
     }
     void SaveDevices()=>Json.Write(Path.Combine(folder,"computers.json"),devices);
-    void Filter(string query){string? selected=(list.SelectedItem as Device)?.Id;list.Items.Clear();foreach(var d in devices.Where(d=>d.ToString().Contains(query,StringComparison.CurrentCultureIgnoreCase)).OrderBy(d=>d.Name)){list.Items.Add(d);if(d.Id==selected)list.SelectedItem=d;}}
+    void Filter(string query){string? selected=(list.SelectedItem as Device)?.Id;list.Items.Clear();foreach(var d in devices.Where(d=>(MachineLabel(d)+d.ToString()).Contains(query,StringComparison.CurrentCultureIgnoreCase)).OrderBy(d=>d.Name)){list.Items.Add(d);if(d.Id==selected)list.SelectedItem=d;}}
     async Task Safe(Func<Task> action)
     {
         try{await action();}catch(Exception e){timer.Stop();status.Text="Falha: "+e.Message;if(!closing)MessageBox.Show(e.Message,"SDE Suporte",MessageBoxButtons.OK,MessageBoxIcon.Information);}

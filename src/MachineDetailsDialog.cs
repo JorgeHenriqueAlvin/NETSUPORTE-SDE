@@ -33,7 +33,7 @@ sealed class MachineDetailsDialog:Form
                 }
                 using var response=await remote.Request(HttpMethod.Get,"/inventory").WaitAsync(token);
                 var fields=JsonSerializer.Deserialize<Dictionary<string,string>>(await response.Content.ReadAsStringAsync(token),Json.Options)??throw new InvalidDataException("Inventário vazio.");
-                if(!IsDisposed)report.Text=string.Join("\r\n\r\n",fields.Select(p=>$"{p.Key}: {p.Value}"))+"\r\n\r\nCampos indisponíveis neste sistema podem ser omitidos. RAM e espaço livre refletem o momento da consulta.";
+                if(!IsDisposed)report.Text="Origem: agente autenticado; conexão com certificado fixado ao cadastro.\r\n\r\n"+string.Join("\r\n\r\n",fields.Select(p=>$"{p.Key}: {p.Value}"))+"\r\n\r\nCampos indisponíveis neste sistema podem ser omitidos. RAM e espaço livre refletem o momento da consulta.";
             }
             catch(OperationCanceledException){if(!IsDisposed&&!token.IsCancellationRequested)report.Text="A consulta excedeu o tempo de espera. Tente novamente.";}
             catch(Exception e){if(!IsDisposed)report.Text="Não foi possível consultar as configurações: "+e.Message;}

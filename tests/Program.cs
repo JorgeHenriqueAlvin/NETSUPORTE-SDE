@@ -12,6 +12,26 @@ static class Tests
     {
         try
         {
+            if(args[0]=="client-package")
+            {
+                var installer=args[1];var version=Version.Parse(args[2]);
+                Check(ClientPackage.Verify(installer,version).Length==64,"pacote válido");
+                var scratch=Path.Combine(Path.GetTempPath(),Guid.NewGuid().ToString());Directory.CreateDirectory(scratch);
+                try{
+                    string copy=Path.Combine(scratch,"client.exe");
+                    void Reject(string path,string label){bool rejected=false;try{ClientPackage.Verify(path,version);}catch(IOException){rejected=true;}Check(rejected,label);}
+                    Reject(copy,"pacote ausente");File.Copy(installer,copy);
+                    Reject(copy,"hash ausente");File.WriteAllText(copy+".sha256",new string('0',64));Reject(copy,"hash divergente");
+                    File.Copy(installer+".sha256",copy+".sha256",true);
+                    using(var locked=File.Open(copy,FileMode.Open,FileAccess.Read,FileShare.None))Reject(copy,"falha de leitura");
+                    bool incompatible=false;try{ClientPackage.Verify(copy,new Version(99,0,0));}catch(IOException){incompatible=true;}Check(incompatible,"pacote incompatível");
+                    var original=new Device(Guid.NewGuid().ToString(),"host","TI","192.168.1.10",7443,new string('A',64));
+                    var administrative=new Dictionary<string,MachineMetadata>{{original.Id,new("Apelido","Descrição","Setor","Local")}};
+                    var persisted=Path.Combine(scratch,"metadata.json");Json.Write(persisted,administrative);
+                    var moved=original with{Host="192.168.1.20"};
+                    Check(Json.Read<Dictionary<string,MachineMetadata>>(persisted)[moved.Id]==administrative[original.Id],"metadados persistem por ID após troca de IP");
+                }finally{Directory.Delete(scratch,true);}return 0;
+            }
             if(args[0] is "prepare" or "prepare-team")
             {
                 Directory.CreateDirectory(args[1]);
