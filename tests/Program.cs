@@ -23,6 +23,7 @@ static class Tests
                     Reject(copy,"pacote ausente");File.Copy(installer,copy);
                     Reject(copy,"hash ausente");File.WriteAllText(copy+".sha256",new string('0',64));Reject(copy,"hash divergente");
                     File.Copy(installer+".sha256",copy+".sha256",true);
+                    using(var locked=File.Open(copy,FileMode.Open,FileAccess.Read,FileShare.None))Reject(copy,"falha de leitura");
                     bool incompatible=false;try{ClientPackage.Verify(copy,new Version(99,0,0));}catch(IOException){incompatible=true;}Check(incompatible,"pacote incompatível");
                     var original=new Device(Guid.NewGuid().ToString(),"host","TI","192.168.1.10",7443,new string('A',64));
                     var administrative=new Dictionary<string,MachineMetadata>{{original.Id,new("Apelido","Descrição","Setor","Local")}};

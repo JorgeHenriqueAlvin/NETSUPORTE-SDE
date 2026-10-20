@@ -87,7 +87,11 @@ jobs:
           if (-not (Test-Path "$target\Packages\SDE-Suporte-Cliente-Instalar.exe")) { throw 'Pacote para implantacao remota ausente.' }
           $expected = (Get-Content "$target\Packages\SDE-Suporte-Cliente-Instalar.exe.sha256" -Raw).Trim()
           if ((Get-FileHash "$target\Packages\SDE-Suporte-Cliente-Instalar.exe" -Algorithm SHA256).Hash -ne $expected) { throw 'Pacote remoto nao corresponde ao hash.' }
-          # Reproduce an incomplete previous update: executable present with newer timestamp and stale hash.
+          # Reproduce an incomplete previous update with a same-version EXE whose bytes differ.
+          $packagePath = "$target\Packages\SDE-Suporte-Cliente-Instalar.exe"
+          $staleBytes = [IO.File]::ReadAllBytes($packagePath)
+          $staleBytes[$staleBytes.Length - 1] = $staleBytes[$staleBytes.Length - 1] -bxor 1
+          [IO.File]::WriteAllBytes($packagePath,$staleBytes)
           [IO.File]::WriteAllText("$target\Packages\SDE-Suporte-Cliente-Instalar.exe.sha256",('0' * 64))
           (Get-Item "$target\Packages\SDE-Suporte-Cliente-Instalar.exe").LastWriteTime = (Get-Date).AddDays(2)
           $repair = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$target") -PassThru -Wait
