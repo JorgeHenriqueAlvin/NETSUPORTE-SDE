@@ -179,7 +179,7 @@ static class Tests
                     using var bitmap=new Bitmap(console.Width,console.Height);console.DrawToBitmap(bitmap,new Rectangle(Point.Empty,bitmap.Size));
                     string qa=Path.Combine(Environment.GetEnvironmentVariable("RUNNER_TEMP")??Path.GetTempPath(),"SDE-Visual-QA");Directory.CreateDirectory(qa);bitmap.Save(Path.Combine(qa,"console.png"));
                     var pages=console.Controls.OfType<TabControl>().Single().TabPages.Cast<TabPage>().Select(p=>p.Text).ToArray();
-                    Check(new[]{"Tela remota","Chat do atendimento","Avisos globais","Inventário e instalação","Estado e logs","Atualizações"}.All(pages.Contains),"console preserva areas de suporte e inclui inventario");
+                    Check(new[]{"Tela remota","Chat","Avisos","Inventário","Diagnóstico","Atualizações"}.All(pages.Contains),"console preserva areas de suporte e inclui inventario");
                     foreach(var size in new[]{new Size(900,560),new Size(1024,768),new Size(1360,850)})
                     {
                         console.Size=size;

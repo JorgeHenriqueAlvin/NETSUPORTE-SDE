@@ -40,8 +40,8 @@ sealed class Technician:Form
     readonly ListBox list=new(){Dock=DockStyle.Fill};
     readonly TabControl tabs=new(){Dock=DockStyle.Fill};
     readonly TabPage remotePage=new("Tela remota");
-    readonly TabPage chatPage=new("Chat do atendimento");
-    readonly TabPage noticesPage=new("Avisos globais");
+    readonly TabPage chatPage=new("Chat");
+    readonly TabPage noticesPage=new("Avisos");
     readonly MessagePanel chatPanel=new();
     readonly TextBox noticeText=new(){Dock=DockStyle.Top,Multiline=true,Height=100,MaxLength=2000,ScrollBars=ScrollBars.Vertical};
     readonly CheckedListBox noticeTargets=new(){Dock=DockStyle.Left,Width=270,CheckOnClick=true};
@@ -115,7 +115,7 @@ sealed class Technician:Form
         Advanced("Remover da lista",()=>{if(list.SelectedItem is Device d&&MessageBox.Show(this,$"Remover {MachineNames.Display(d,observations.GetValueOrDefault(d.Id))} da lista? O agente continuará instalado.","Remover máquina",MessageBoxButtons.YesNo,MessageBoxIcon.Question)==DialogResult.Yes){devices.Remove(d);SaveDevices();Filter(search.Text);}});
         Add("Opções avançadas",()=>{advanced.Show(Cursor.Position);return Task.CompletedTask;});
         int sessionStart=toolbar.Controls.Count;
-        connect.Click+=async(_,_)=>await Safe(Connect);toolbar.Controls.Add(connect);
+        connect.Click+=async(_,_)=>{if(!connect.Enabled)return;connect.Enabled=false;try{await Safe(Connect);}finally{if(!connect.IsDisposed)connect.Enabled=true;}};toolbar.Controls.Add(connect);
         Add("Encerrar",Disconnect);Add("Verificar conexão",Probe);
         toolbar.Controls.Add(text);Add("Enviar texto",async()=>{await Input(new("text",Text:text.Text));text.Clear();});
         toolbar.Controls.Add(autoFullScreen);Add("Tela cheia (F11)",()=>{ToggleFullScreen();return Task.CompletedTask;});
@@ -130,9 +130,9 @@ sealed class Technician:Form
         monitorPicker.SelectedIndexChanged+=(_,_)=>{if(!updatingMonitors&&monitorPicker.SelectedItem is RemoteMonitor m){selectedMonitor=m.Id;screen.Focus();}};
         remotePage.Controls.Add(screen);remotePage.Controls.Add(monitorBar);remotePage.Controls.Add(sessionBar);chatPage.Controls.Add(chatPanel);
         screen.Paint+=(_,e)=>{if(screen.Image is null)TextRenderer.DrawText(e.Graphics,"Atendimento remoto\n\nSelecione uma máquina e clique em Conectar.\nA imagem aparecerá após a autorização do agente.",Font,Rectangle.Inflate(screen.ClientRectangle,-24,-24),Color.FromArgb(211,224,236),TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter|TextFormatFlags.WordBreak);};
-        var operationsPage=new TabPage("Estado e logs");
+        var operationsPage=new TabPage("Diagnóstico");
         operationsPage.Controls.Add(new OperationsPanel(identity,()=>devices.ToArray(),IsOnline,()=>authorities.Select(a=>a.Id).ToArray(),lifetime.Token){Dock=DockStyle.Fill});
-        var deploymentPage=new TabPage("Inventário e instalação");deploymentPage.Controls.Add(new DeploymentPanel(startBackgroundServices));
+        var deploymentPage=new TabPage("Inventário");deploymentPage.Controls.Add(new DeploymentPanel(startBackgroundServices));
         tabs.TabPages.AddRange([remotePage,chatPage,noticesPage,deploymentPage,operationsPage,UpdatesPage()]);
         var noticeHeader=new Label{Dock=DockStyle.Top,Height=100,Text="Marque os clientes ou use Selecionar todos. Envie texto, foto ou os dois.\nO funcionário verá apenas “Aviso da TI”, sem o nome do remetente. Entrega não significa leitura.",Padding=new Padding(8)};
         noticesPage.Padding=new Padding(12);noticesPage.Controls.Add(noticeResults);noticesPage.Controls.Add(noticeTargets);noticesPage.Controls.Add(sendNotice);noticesPage.Controls.Add(noticeText);noticesPage.Controls.Add(noticePreview);
