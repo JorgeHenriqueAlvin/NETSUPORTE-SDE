@@ -9,8 +9,11 @@ namespace SdeSuporte;
 public static class OperationalData
 {
     static readonly object sync=new();
-    public static void Write(string path,object value)
+    public static void Write(string path,object value)=>WriteMany(path,[value]);
+    public static void WriteMany(string path,IEnumerable<object> values)
     {
+        string batch=string.Join(Environment.NewLine,values.Select(value=>JsonSerializer.Serialize(value)));
+        if(batch.Length==0)return;
         lock(sync)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -20,7 +23,7 @@ public static class OperationalData
                 for(int i=2;i>=1;i--)if(File.Exists(path+"."+i))File.Move(path+"."+i,path+"."+(i+1),true);
                 File.Move(path,path+".1",true);
             }
-            File.AppendAllText(path,JsonSerializer.Serialize(value)+Environment.NewLine);
+            File.AppendAllText(path,batch+Environment.NewLine);
         }
     }
     public static JsonElement[] Tail(string path,int limit=200)

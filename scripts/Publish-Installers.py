@@ -64,7 +64,7 @@ def main():
         release = call("POST", "/releases", value={
             "tag_name": tag, "target_commitish": sha, "draft": True,
             "name": "SDE Suporte " + version + " — atualização e diagnóstico",
-            "body": "Estado e logs no console, eventos autenticados dos agentes, atualização Windows com encerramento voluntário do Cliente ocioso e confirmação de versão, recuperação do pacote Cliente da mesma versão, presença com tentativas espaçadas e diagnóstico. Agentes anteriores precisam de uma atualização inicial; o console aberto ainda precisa ser fechado. Raspberry ARM64 usa pacote e canal próprios, com atualização verificada após bootstrap manual. Testes automatizados não substituem piloto na rede e validação de capacidade em 400 máquinas. Autorizações e identidades existentes preservadas.",
+            "body": "Revisão de desempenho e usabilidade: lista de máquinas preserva seleção e agrupa atualizações; abas adaptam-se à janela e oferecem navegação por teclado. Coleta grava lotes de eventos fora da interface. Consultas HTTP têm cancelamento real, rotas locais validadas e respostas limitadas; cadastros são gravados por substituição atômica. Mantém as regras de autorização e consentimento. Instaladores validados no CI Windows; piloto físico em 400 máquinas e infraestrutura de locais externos continuam necessários. Detalhes em docs/QUALIDADE-0.12.15.md.",
         })
     if release["target_commitish"] != sha:
         raise ValueError("Version already belongs to a different source commit; increment it")

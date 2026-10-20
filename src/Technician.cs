@@ -78,11 +78,13 @@ sealed class Technician:Form
     readonly Dictionary<string,DateTimeOffset> nextProbe=new();
     bool observationsDirty;
     readonly System.Windows.Forms.Timer presence=new(){Interval=4000};
+    readonly System.Windows.Forms.Timer listRefresh=new(){Interval=180};
     readonly Label scanStatus=new(){Dock=DockStyle.Bottom,Height=27,Text="Buscando agentes da equipe na rede..."};
     readonly System.Windows.Forms.Timer scanClock=new(){Interval=120000};
     readonly CancellationTokenSource lifetime=new();
     CancellationTokenSource? scanning;
     bool dirty,searchingAgents;
+    void RequestListRefresh(){if(!closing&&!IsDisposed&&!listRefresh.Enabled)listRefresh.Start();}
     RemoteClient? client;
     bool loading,closing;
     DateTime lastMove;
@@ -146,18 +148,28 @@ sealed class Technician:Form
         Premium.Apply(this);connect.BackColor=Color.FromArgb(45,105,230);connect.ForeColor=Color.White;
         status.Padding=new Padding(12,5,0,0);status.BackColor=Color.FromArgb(226,233,244);
         list.BorderStyle=BorderStyle.None;search.Margin=new Padding(8);
-        tabs.ItemSize=new Size(170,40);tabs.SizeMode=TabSizeMode.Fixed;
+        tabs.ItemSize=new Size(0,40);tabs.SizeMode=TabSizeMode.Normal;tabs.Multiline=true;
+        tabs.AccessibleName="Áreas de atendimento";search.AccessibleName="Pesquisar máquinas";
+        onlyOnline.AccessibleName="Mostrar somente máquinas conectadas";list.AccessibleName="Máquinas da equipe";
+        list.SelectedIndexChanged+=(_,_)=>list.AccessibleDescription=list.SelectedItem is Device selected?MachineLabel(selected):"Nenhuma máquina selecionada.";
         tabs.DrawMode=TabDrawMode.OwnerDrawFixed;tabs.DrawItem+=(_,e)=>{var selected=e.Index==tabs.SelectedIndex;using var fill=new SolidBrush(selected?Color.White:Color.FromArgb(230,236,246));e.Graphics.FillRectangle(fill,e.Bounds);TextRenderer.DrawText(e.Graphics,tabs.TabPages[e.Index].Text,Font,e.Bounds,selected?Color.FromArgb(45,105,230):Color.FromArgb(65,81,108),TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);if(selected){using var line=new Pen(Color.FromArgb(45,105,230),3);e.Graphics.DrawLine(line,e.Bounds.Left,e.Bounds.Bottom-2,e.Bounds.Right,e.Bounds.Bottom-2);}};
         var brand=new Label{Text="SDE  /  SUPORTE\nCentral de atendimento",Dock=DockStyle.Top,Height=70,Padding=new Padding(10),Font=new Font("Segoe UI Semibold",13),ForeColor=Color.White,BackColor=Color.FromArgb(18,30,50)};sidebar.Controls.Add(brand);
         if(File.Exists(MetadataPath))metadata=Json.Read<Dictionary<string,MachineMetadata>>(MetadataPath);
         if(File.Exists(ObservationsPath))observations=Json.Read<Dictionary<string,MachineObservation>>(ObservationsPath);
-        search.TextChanged+=(_,_)=>Filter(search.Text);
+        listRefresh.Tick+=(_,_)=>{listRefresh.Stop();Filter(search.Text);};
+        search.TextChanged+=(_,_)=>{listRefresh.Stop();listRefresh.Start();};
         onlyOnline.CheckedChanged+=(_,_)=>Filter(search.Text);
         if(File.Exists(Path.Combine(folder,"computers.json")))devices.AddRange(Json.Read<Device[]>(Path.Combine(folder,"computers.json")));
         if(File.Exists(Path.Combine(folder,"authorities.json")))authorities.AddRange(Json.Read<TechnicianKey[]>(Path.Combine(folder,"authorities.json")));
         authorities.RemoveAll(a=>a.Id==identity.Public.Id);authorities.Add(identity.Public);
         authorities.RemoveAll(a=>a.Id==TeamAccess.Root.Id);authorities.Add(TeamAccess.Root);
         list.DrawMode=DrawMode.OwnerDrawFixed;list.ItemHeight=210;
+        void AdaptLayout()
+        {
+            sidebar.Width=Math.Clamp(ClientSize.Width/3,300,460);
+            list.ItemHeight=Math.Max(180,(int)Math.Ceiling(list.Font.GetHeight()*11));
+        }
+        Resize+=(_,_)=>AdaptLayout();DpiChanged+=(_,_)=>AdaptLayout();AdaptLayout();
         list.DrawItem+=(_,e)=>{
             if(e.Index<0)return;e.DrawBackground();var d=(Device)list.Items[e.Index];
             bool available=online.TryGetValue(d.Id,out var seen)&&DateTimeOffset.UtcNow-seen<TimeSpan.FromSeconds(45);
@@ -184,7 +196,7 @@ sealed class Technician:Form
         screen.KeyUp+=async(_,e)=>{e.SuppressKeyPress=true;if(e.KeyCode==Keys.F11)return;if(held.Remove(e.KeyValue))await Safe(()=>Input(new("keyUp",Key:e.KeyValue)));};
         screen.LostFocus+=async(_,_)=>{foreach(int k in held.ToArray())await Safe(()=>Input(new("keyUp",Key:k)));held.Clear();};
         FormClosing+=async(_,e)=>{if(closing)return;e.Cancel=true;closing=true;lifetime.Cancel();scanning?.Cancel();Enabled=false;try{await Disconnect();}catch{}finally{Close();}};
-        FormClosed+=(_,_)=>{discovery?.Dispose();presence.Dispose();scanClock.Dispose();chatClock.Dispose();advanced.Dispose();if(dirty)SaveDevices();timer.Dispose();client?.Dispose();identity.Dispose();screen.Image?.Dispose();noticePreview.Image?.Dispose();};
+        FormClosed+=(_,_)=>{discovery?.Dispose();presence.Dispose();listRefresh.Dispose();scanClock.Dispose();chatClock.Dispose();advanced.Dispose();if(dirty)SaveDevices();timer.Dispose();client?.Dispose();identity.Dispose();screen.Image?.Dispose();noticePreview.Image?.Dispose();};
     }
     TabPage UpdatesPage()
     {
@@ -332,7 +344,7 @@ sealed class Technician:Form
         try
         {
             if(closing||IsDisposed)return;
-            using var candidate=new RemoteClient(d,identity,TimeSpan.FromSeconds(5));using var response=await candidate.Request(HttpMethod.Get,"/info");
+            using var candidate=new RemoteClient(d,identity,TimeSpan.FromSeconds(5));using var response=await candidate.Request(HttpMethod.Get,"/info",cancellation:lifetime.Token);
             using var info=JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             if(info.RootElement.GetProperty("id").GetString()!=d.Id)throw new InvalidDataException("O IP responde com outro cadastro de agente; este registro pode ser antigo.");
             if(closing||IsDisposed)return;
@@ -350,7 +362,7 @@ sealed class Technician:Form
                 inventoryChecked[d.Id]=DateTimeOffset.UtcNow;
                 try
                 {
-                    using var inventoryResponse=await candidate.Request(HttpMethod.Get,"/inventory");
+                    using var inventoryResponse=await candidate.Request(HttpMethod.Get,"/inventory",cancellation:lifetime.Token);
                     var inventory=JsonSerializer.Deserialize<Dictionary<string,string>>(await inventoryResponse.Content.ReadAsStringAsync(),Json.Options);
                     if(closing||IsDisposed)return;
                     if(inventory is not null)observations[d.Id]=MachineDescriptions.ApplyInventory(observations[d.Id],inventory);
@@ -360,19 +372,20 @@ sealed class Technician:Form
             observationsDirty=true;
             var existing=devices.FirstOrDefault(x=>x.Id==d.Id);
             if(existing!=d){devices.RemoveAll(x=>x.Id==d.Id);devices.Add(d);dirty=true;}
-            Filter(search.Text);
+            RequestListRefresh();
         }catch(HttpRequestException e)when(e.StatusCode==System.Net.HttpStatusCode.TooManyRequests){
             nextProbe[d.Id]=DateTimeOffset.UtcNow.AddSeconds(15);
             connectionErrors[d.Id]="Agente ocupado; aguardando nova consulta autenticada.";
             if(!IsDisposed)list.Invalidate();
         }
+        catch(OperationCanceledException)when(lifetime.IsCancellationRequested){}
         catch(Exception e)
         {
             online.Remove(d.Id);
             int failures=Math.Min(10,probeFailures.GetValueOrDefault(d.Id)+1);probeFailures[d.Id]=failures;
             nextProbe[d.Id]=DateTimeOffset.UtcNow+PresencePolicy.RetryDelay(failures);
             connectionErrors[d.Id]=e is HttpRequestException h&&h.StatusCode is not null?$"HTTP {(int)h.StatusCode}: verifique autorização e versão do Cliente":e is InvalidDataException?e.Message:e is TaskCanceledException?"Agente não respondeu a tempo; confira se está aberto":e is HttpRequestException?"Sem conexão segura com o agente; confira IP, Cliente e firewall":"Não foi possível ler os dados do agente";
-            if(!IsDisposed&&!closing)Filter(search.Text);
+            if(!IsDisposed&&!closing)RequestListRefresh();
         }
         finally{checking.Remove(d.Id);if(acquired)probes.Release();}
     }
@@ -404,23 +417,44 @@ sealed class Technician:Form
     void Filter(string query)
     {
         if(closing)return;
-        string? selected=(list.SelectedItem as Device)?.Id;
-        int top=list.TopIndex;
-        list.BeginUpdate();
-        try
+        query=query.Trim();
+        var visible=devices.Where(d=>(!onlyOnline.Checked||IsOnline(d))&&(query.Length==0||(MachineLabel(d)+d.ToString()).Contains(query,StringComparison.CurrentCultureIgnoreCase)))
+            .OrderByDescending(IsOnline).ThenBy(d=>observations.GetValueOrDefault(d.Id)?.Hostname??d.Name,StringComparer.CurrentCultureIgnoreCase).ToArray();
+        // Preserve the native list and selection on a heartbeat when order and
+        // identity are unchanged. Repaint reflects fresh metadata without churn.
+        if(!list.Items.Cast<Device>().SequenceEqual(visible))
         {
-            list.Items.Clear();
-            foreach(var d in devices.Where(d=>(!onlyOnline.Checked||IsOnline(d))&&(MachineLabel(d)+d.ToString()).Contains(query,StringComparison.CurrentCultureIgnoreCase))
-                .OrderByDescending(IsOnline).ThenBy(d=>observations.GetValueOrDefault(d.Id)?.Hostname??d.Name,StringComparer.CurrentCultureIgnoreCase))
-            {list.Items.Add(d);if(d.Id==selected)list.SelectedItem=d;}
-            if(list.Items.Count>0)list.TopIndex=Math.Min(Math.Max(top,0),list.Items.Count-1);
-            machineCount.Text=$"{devices.Count(IsOnline)} conectados • {devices.Count} salvos • {list.Items.Count} exibidos";
+            string? selected=(list.SelectedItem as Device)?.Id;
+            string? topId=list.TopIndex>=0&&list.TopIndex<list.Items.Count?(list.Items[list.TopIndex] as Device)?.Id:null;
+            list.BeginUpdate();
+            try
+            {
+                list.Items.Clear();list.Items.AddRange(visible.Cast<object>().ToArray());
+                int selectedIndex=Array.FindIndex(visible,d=>d.Id==selected);
+                if(selectedIndex>=0)list.SelectedIndex=selectedIndex;
+                int topIndex=Array.FindIndex(visible,d=>d.Id==topId);
+                if(topIndex>=0)list.TopIndex=topIndex;
+            }
+            finally{list.EndUpdate();}
         }
-        finally{list.EndUpdate();}
+        list.Invalidate();
+        machineCount.Text=$"{devices.Count(IsOnline)} conectados • {devices.Count} salvos • {visible.Length} exibidos";
+    }
+    protected override bool ProcessCmdKey(ref Message msg,Keys keyData)
+    {
+        // Let a focused remote desktop keep its own Ctrl+F/F5 shortcuts.
+        if(!(screen.ContainsFocus&&client?.Session is not null))
+        {
+            if(keyData==(Keys.Control|Keys.F)){search.Focus();search.SelectAll();return true;}
+            if(keyData==Keys.F5){_=Safe(SearchAgents);return true;}
+            if(keyData==Keys.Escape&&search.ContainsFocus){search.Clear();return true;}
+        }
+        return base.ProcessCmdKey(ref msg,keyData);
     }
     async Task Safe(Func<Task> action)
     {
-        try{await action();}catch(Exception e){timer.Stop();status.Text="Falha: "+e.Message;if(!closing)MessageBox.Show(e.Message,"SDE Suporte",MessageBoxButtons.OK,MessageBoxIcon.Information);}
+        try{await action();}catch(OperationCanceledException)when(closing){}
+        catch(Exception e){status.Text="Falha: "+e.Message;if(!closing)MessageBox.Show(e.Message,"SDE Suporte",MessageBoxButtons.OK,MessageBoxIcon.Information);}
     }
     async Task Probe()
     {
@@ -446,7 +480,7 @@ sealed class Technician:Form
     async Task Disconnect()
     {
         timer.Stop();chatClock.Stop();ExitFullScreen();await operations.WaitAsync();
-        try{if(client is not null){try{await client.Stop().WaitAsync(TimeSpan.FromSeconds(2));}finally{client.Dispose();client=null;}}}
+        try{if(client is not null){try{using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(2));await client.Stop(timeout.Token);}finally{client.Dispose();client=null;}}}
         finally{operations.Release();held.Clear();var old=screen.Image;screen.Image=null;old?.Dispose();status.Text="Atendimento encerrado.";chatAvailable=false;chatPanel.SetAvailable(false);chatPanel.SetTitle("Atendimento encerrado. Conecte novamente para conversar.");}
     }
     async Task Frame()
@@ -458,6 +492,18 @@ sealed class Technician:Form
                 frameLayout=r.Headers.TryGetValues("X-SDE-Monitors",out var layout)?layout.First():"";
                 RefreshMonitors(r,requestedMonitor);}}
         catch(Exception)when(!ReferenceEquals(client,active)||active.Session is null){}
+        catch(Exception e)
+        {
+            // End only the failed session, instead of silently freezing its last frame
+            // or allowing unrelated actions to stop the global refresh timer.
+            timer.Stop();
+            if(!closing&&!IsDisposed)
+                BeginInvoke(new Action(async()=>{
+                    if(!ReferenceEquals(client,active))return;
+                    try{await Disconnect();}catch{}
+                    if(!closing&&!IsDisposed)status.Text="Conexão interrompida. Conecte novamente. "+e.Message;
+                }));
+        }
         finally{loading=false;}
     }
     static int HeaderInt(HttpResponseMessage response,string name)=>response.Headers.TryGetValues(name,out var values)&&int.TryParse(values.FirstOrDefault(),out var number)?number:0;

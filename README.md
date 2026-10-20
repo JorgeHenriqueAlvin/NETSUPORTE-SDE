@@ -1,4 +1,8 @@
-# SDE Suporte 0.12.14
+## Revisão de qualidade 0.12.15
+
+Melhorias de fluidez da lista, acessibilidade, cancelamento HTTP e persistência atômica. Consulte [mudanças e limites](docs/QUALIDADE-0.12.15.md).
+
+# SDE Suporte 0.12.15
 
 Consulte [operação, atualização e limites da versão atual](docs/OPERACAO-0.12.14.md).
 A aba **Estado e logs** reúne versão, atualização, atendimento, eventos recentes e diagnóstico por máquina. Novos Clientes Windows e Raspberry podem atualizar quando ficam ociosos; agentes anteriores precisam receber esta versão primeiro. O console Windows deve ser fechado para sua própria atualização. Eventos são coletados no computador do técnico, sem sincronização central entre técnicos.

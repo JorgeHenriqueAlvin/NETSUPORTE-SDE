@@ -6,10 +6,12 @@ namespace SdeSuporte;
 
 sealed class OperationsPanel:UserControl
 {
-    readonly DataGridView grid=new(){Dock=DockStyle.Fill,ReadOnly=true,AllowUserToAddRows=false,AllowUserToDeleteRows=false,AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill,SelectionMode=DataGridViewSelectionMode.FullRowSelect,MultiSelect=false};
+    readonly DataGridView grid=new(){Dock=DockStyle.Fill,ReadOnly=true,AllowUserToAddRows=false,AllowUserToDeleteRows=false,AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill,SelectionMode=DataGridViewSelectionMode.FullRowSelect,MultiSelect=false,AccessibleName="Estado das máquinas",RowHeadersVisible=false,AutoSizeRowsMode=DataGridViewAutoSizeRowsMode.AllCells};
     readonly Label status=new(){Dock=DockStyle.Bottom,Height=48};
     readonly System.Windows.Forms.Timer timer=new(){Interval=60000};
     readonly CancellationTokenSource stop;
+    readonly CancellationToken cancellation;
+    bool disposed;
     readonly TechnicianIdentity identity;
     readonly Func<Device[]> devices;
     readonly Func<Device,bool> online;
@@ -20,7 +22,7 @@ sealed class OperationsPanel:UserControl
     public OperationsPanel(TechnicianIdentity identity,Func<Device[]> devices,Func<Device,bool> online,Func<string[]> roots,CancellationToken lifetime)
     {
         this.identity=identity;this.devices=devices;this.online=online;this.roots=roots;
-        stop=CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+        stop=CancellationTokenSource.CreateLinkedTokenSource(lifetime);cancellation=stop.Token;
         Directory.CreateDirectory(folder);
         var bar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=80,AutoScroll=true};
         var refresh=new Button{Text="Atualizar estados e logs",AutoSize=true};
@@ -30,6 +32,11 @@ sealed class OperationsPanel:UserControl
         bar.Controls.AddRange([refresh,diagnose,logs,auto]);
         grid.Columns.Add("machine","Computador");grid.Columns.Add("ip","IP");grid.Columns.Add("version","Agente");
         grid.Columns.Add("update","Atualização");grid.Columns.Add("session","Atendimento");grid.Columns.Add("event","Último evento / alerta");grid.Columns.Add("at","Consulta");
+        grid.DefaultCellStyle.WrapMode=DataGridViewTriState.True;
+        grid.ColumnHeadersHeightSizeMode=DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+        foreach(DataGridViewColumn column in grid.Columns)column.MinimumWidth=100;
+        grid.Columns[5].MinimumWidth=220;
+        bar.AccessibleName="Ações de diagnóstico e auditoria";
         Controls.Add(grid);Controls.Add(bar);Controls.Add(status);
         status.Text="Logs de suporte recebidos dos agentes acessíveis. Não registra tudo que o funcionário faz. Agentes antigos precisam ser atualizados.";
         refresh.Click+=async(_,_)=>await RefreshAll();
@@ -38,7 +45,7 @@ sealed class OperationsPanel:UserControl
         diagnose.Click+=async(_,_)=>{
             if(grid.CurrentRow?.Tag is not Device d)return;
             try{
-                var result=await AgentConnection.Test(d.Host,roots(),identity,stop.Token,d.Port);
+                var result=await AgentConnection.Test(d.Host,roots(),identity,cancellation,d.Port);
                 if(!IsDisposed)MessageBox.Show(this,result.Message,"Diagnóstico: "+result.State);
             }catch(OperationCanceledException){}
             catch(Exception e){if(!IsDisposed)MessageBox.Show(this,e.Message,"Diagnóstico");}
@@ -63,16 +70,19 @@ sealed class OperationsPanel:UserControl
         busy=true;
         try
         {
-            var targets=devices();var token=stop.Token;
+            var targets=devices();var token=cancellation;
             // UI rows are created on the UI thread. Parallel continuations return
             // to that context; neither WinForms controls nor key signing run on workers.
+            var currentIds=targets.Select(d=>d.Id).ToHashSet();
+            foreach(var row in grid.Rows.Cast<DataGridViewRow>().Where(r=>r.Tag is Device d&&!currentIds.Contains(d.Id)).ToArray())grid.Rows.Remove(row);
+            foreach(var id in seen.Keys.Where(id=>!currentIds.Contains(id)).ToArray())seen.Remove(id);
             var rows=new Dictionary<string,DataGridViewRow>();
             foreach(DataGridViewRow row in grid.Rows)if(row.Tag is Device d)rows[d.Id]=row;
             foreach(var d in targets)
             {
                 if(!rows.TryGetValue(d.Id,out var row)){int i=grid.Rows.Add(d.Name,d.Host,"","","","","");row=grid.Rows[i];rows[d.Id]=row;}
                 row.Tag=d;row.Cells[0].Value=d.Name;row.Cells[1].Value=d.Host;
-                if(!online(d)){row.Cells[5].Value="Sem comunicação recente; use Diagnosticar";continue;}
+                if(!online(d)){row.Cells[4].Value="Sem confirmação recente";row.Cells[5].Value="Sem comunicação recente; use Diagnosticar";continue;}
             }
             using var gate=new SemaphoreSlim(8);
             int ok=0,failed=0;
@@ -81,16 +91,16 @@ sealed class OperationsPanel:UserControl
                 try
                 {
                     using var remote=new RemoteClient(d,identity,TimeSpan.FromSeconds(5));
-                    using var infoResponse=await remote.Request(HttpMethod.Get,"/info").WaitAsync(token);
+                    using var infoResponse=await remote.Request(HttpMethod.Get,"/info",cancellation:token);
                     using var info=JsonDocument.Parse(await infoResponse.Content.ReadAsStringAsync(token));
                     if(Field(info.RootElement,"id")!=d.Id)throw new InvalidDataException("IP associado a outra identidade.");
                     var row=rows[d.Id];if(IsDisposed||token.IsCancellationRequested)return;
                     row.Cells[2].Value=Field(info.RootElement,"version");
                     bool supported=info.RootElement.TryGetProperty("capabilities",out var caps)&&caps.EnumerateArray().Any(x=>x.GetString()=="operations");
                     if(!supported){row.Cells[5].Value="Atualize o Cliente para receber estado e logs.";return;}
-                    using var healthResponse=await remote.Request(HttpMethod.Get,"/health").WaitAsync(token);
+                    using var healthResponse=await remote.Request(HttpMethod.Get,"/health",cancellation:token);
                     using var health=JsonDocument.Parse(await healthResponse.Content.ReadAsStringAsync(token));
-                    using var auditResponse=await remote.Request(HttpMethod.Get,"/audit").WaitAsync(token);
+                    using var auditResponse=await remote.Request(HttpMethod.Get,"/audit",cancellation:token);
                     var events=JsonSerializer.Deserialize<JsonElement[]>(await auditResponse.Content.ReadAsStringAsync(token))??[];
                     if(IsDisposed||token.IsCancellationRequested)return;
                     row.Cells[4].Value=health.RootElement.GetProperty("activeSession").GetBoolean()?"Em atendimento":"Livre";
@@ -102,15 +112,35 @@ sealed class OperationsPanel:UserControl
                     }
                     else row.Cells[3].Value="Estado ainda não recebido";
                     var path=EventPath(d);
-                    if(!seen.TryGetValue(d.Id,out var ids)){ids=OperationalData.Tail(path,1000).Where(x=>x.TryGetProperty("eventId",out _)).Select(x=>x.GetProperty("eventId").GetString()!).ToHashSet();seen[d.Id]=ids;}
+                    if(!seen.TryGetValue(d.Id,out var ids))
+                    {
+                        var retained=await Task.Run(()=>OperationalData.Tail(path,1000),token);
+                        if(IsDisposed||token.IsCancellationRequested)return;
+                        ids=retained.Where(x=>x.TryGetProperty("eventId",out _)).Select(x=>x.GetProperty("eventId").GetString()!).ToHashSet();
+                        seen[d.Id]=ids;
+                    }
+                    var pending=new List<object>();var pendingIds=new HashSet<string>();
                     foreach(var entry in events.TakeLast(200))
                     {
-                        string eventId=OperationalData.EventId(entry);if(!ids.Add(eventId))continue;
-                        OperationalData.Write(path,new{eventId,receivedAt=DateTimeOffset.UtcNow,deviceId=d.Id,hostname=d.Name,eventData=entry});
+                        string eventId=OperationalData.EventId(entry);
+                        if(ids.Contains(eventId)||!pendingIds.Add(eventId))continue;
+                        pending.Add(new{eventId,receivedAt=DateTimeOffset.UtcNow,deviceId=d.Id,hostname=d.Name,eventData=entry});
+                    }
+                    if(pending.Count>0)
+                    {
+                        await Task.Run(()=>OperationalData.WriteMany(path,pending),token);
+                        if(IsDisposed||token.IsCancellationRequested)return;
+                        // Mark received only after durable local append succeeded.
+                        ids.UnionWith(pendingIds);
                     }
                     // Rebuild from retained entries instead of dropping the dedup set
                     // arbitrarily and duplicating the agent's entire tail on every poll.
-                    if(ids.Count>2000)seen[d.Id]=OperationalData.Tail(path,1000).Select(x=>x.GetProperty("eventId").GetString()!).ToHashSet();
+                    if(ids.Count>2000)
+                    {
+                        var retained=await Task.Run(()=>OperationalData.Tail(path,1000),token);
+                        if(IsDisposed||token.IsCancellationRequested)return;
+                        seen[d.Id]=retained.Where(x=>x.TryGetProperty("eventId",out _)).Select(x=>x.GetProperty("eventId").GetString()!).ToHashSet();
+                    }
                     if(events.LastOrDefault() is var last&&last.ValueKind==JsonValueKind.Object)
                     {
                         string action=Field(last,"action");
@@ -131,7 +161,7 @@ sealed class OperationsPanel:UserControl
     }
     protected override void Dispose(bool disposing)
     {
-        if(disposing){stop.Cancel();timer.Dispose();}
+        if(disposing&&!disposed){disposed=true;stop.Cancel();timer.Dispose();stop.Dispose();}
         base.Dispose(disposing);
     }
 }
