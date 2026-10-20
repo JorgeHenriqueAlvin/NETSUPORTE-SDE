@@ -32,6 +32,11 @@ static class Tests
                     Check(MachineNames.Display(original,observation)=="PC-ATUAL","hostname autenticado tem prioridade sobre nome cadastrado");
                     Check(MachineNames.Display(original,observation with{Hostname="Nome não identificado"})=="host","cache antigo sem hostname usa nome cadastrado");
                     Check(MachineNames.Display(original,observation with{Hostname=" "})=="host","hostname vazio usa nome cadastrado");
+                    var hardware=MachineDescriptions.ApplyInventory(observation,new Dictionary<string,string>{{"Nome da máquina / host","CLIENTE-01"},{"Sistema operacional","Windows 11 Pro"},{"RAM total","15,80 GiB"}});
+                    Check(hardware.Hostname=="CLIENTE-01"&&MachineDescriptions.Summary(hardware).Contains("Windows 11 Pro • RAM total: 15,80 GiB"),"descricao exibe nome, sistema e RAM do inventario remoto");
+                    Check(MachineDescriptions.ApplyInventory(hardware,new Dictionary<string,string>{{"RAM total",""}}).RamTotal=="15,80 GiB","inventario incompleto preserva RAM previamente coletada");
+                    var legacy=JsonSerializer.Deserialize<MachineObservation>("{\"hostname\":\"LEGADO\",\"description\":\"\",\"os\":\"Windows 10\",\"version\":\"\",\"agentVersion\":\"0.11.0\",\"seen\":\"2026-10-20T00:00:00Z\"}",Json.Options);
+                    Check(MachineDescriptions.Summary(legacy).Contains("RAM total: não informada"),"cache anterior sem RAM continua legivel sem inventar memoria");
                     var persisted=Path.Combine(scratch,"metadata.json");Json.Write(persisted,administrative);
                     var moved=original with{Host="192.168.1.20"};
                     Check(Json.Read<Dictionary<string,MachineMetadata>>(persisted)[moved.Id]==administrative[original.Id],"metadados persistem por ID após troca de IP");

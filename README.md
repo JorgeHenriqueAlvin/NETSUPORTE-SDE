@@ -1,3 +1,9 @@
+## Descrição com sistema e RAM — console 0.12.12
+
+A lista mostra o nome do computador cliente, o IP, o sistema operacional e a RAM total enviados pelo inventário autenticado do agente. O console consulta `/inventory` automaticamente após verificar a presença, para agentes que anunciam essa capacidade, e limita as consultas de hardware a uma a cada cinco minutos por máquina. Os dados ficam salvos para consulta posterior; o estado conectado continua dependendo da comunicação recente.
+
+Se a consulta de inventário falhar, a presença confirmada por `/info` continua válida e os últimos dados conhecidos são preservados. Agentes antigos sem inventário mostram “RAM total: não informada”; atualize o Cliente para obter a memória. A descrição administrativa permanece disponível abaixo do sistema e da RAM. “Nome do cliente” nesta lista significa o nome do computador.
+
 # SDE Suporte 0.8.0 — descoberta sem agente e implantação remota
 
 Suporte remoto interno com dois instaladores: **Técnico** e **Cliente**. Não exige Active Directory, domínio, servidor externo ou exportação de identificações entre computadores.

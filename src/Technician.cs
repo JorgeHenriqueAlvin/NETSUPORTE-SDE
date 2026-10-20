@@ -8,6 +8,7 @@ sealed class Technician:Form
     Dictionary<string,MachineMetadata> metadata=new();
     Dictionary<string,MachineObservation> observations=new();
     readonly Dictionary<string,string> connectionErrors=new();
+    readonly Dictionary<string,DateTimeOffset> inventoryChecked=new();
     string MetadataPath=>Path.Combine(folder,"machine-metadata.json");
     string ObservationsPath=>Path.Combine(folder,"machine-observations.json");
     MachineMetadata Admin(Device d)=>metadata.GetValueOrDefault(d.Id)??new();
@@ -20,7 +21,7 @@ sealed class Technician:Form
         string description=!string.IsNullOrWhiteSpace(a.Description)?a.Description:!string.IsNullOrWhiteSpace(o?.Description)?o.Description:"Descrição não informada";
         string location=string.Join(" • ",new[]{a.Sector.Length>0?a.Sector:d.Sector,a.Location}.Where(v=>!string.IsNullOrWhiteSpace(v)));
         string details=connectionErrors.TryGetValue(d.Id,out var error)?"Consulta: "+error:$"Última comunicação: {last?.ToLocalTime().ToString("g")??"aguardando resposta do agente"}";
-        return $"{hostname}{alias}\nIP: {d.Host} • {location}\n{description}\n{(string.IsNullOrWhiteSpace(o?.OS)?"Sistema não informado":o.OS)} • Agente: {o?.AgentVersion??"não informado"}\n{details}";
+        return $"{hostname}{alias}\nIP: {d.Host} • {location}\n{MachineDescriptions.Summary(o)}\n{description}\nAgente: {o?.AgentVersion??"não informado"} • {details}";
     }
     void EditMetadata()
     {
@@ -151,7 +152,7 @@ sealed class Technician:Form
         if(File.Exists(Path.Combine(folder,"authorities.json")))authorities.AddRange(Json.Read<TechnicianKey[]>(Path.Combine(folder,"authorities.json")));
         authorities.RemoveAll(a=>a.Id==identity.Public.Id);authorities.Add(identity.Public);
         authorities.RemoveAll(a=>a.Id==TeamAccess.Root.Id);authorities.Add(TeamAccess.Root);
-        list.DrawMode=DrawMode.OwnerDrawFixed;list.ItemHeight=165;
+        list.DrawMode=DrawMode.OwnerDrawFixed;list.ItemHeight=185;
         list.DrawItem+=(_,e)=>{
             if(e.Index<0)return;e.DrawBackground();var d=(Device)list.Items[e.Index];
             bool available=online.TryGetValue(d.Id,out var seen)&&DateTimeOffset.UtcNow-seen<TimeSpan.FromSeconds(45);
@@ -314,7 +315,7 @@ sealed class Technician:Form
         try
         {
             if(closing||IsDisposed)return;
-            using var candidate=new RemoteClient(d,identity,TimeSpan.FromSeconds(2));using var response=await candidate.Request(HttpMethod.Get,"/info");
+            using var candidate=new RemoteClient(d,identity,TimeSpan.FromSeconds(5));using var response=await candidate.Request(HttpMethod.Get,"/info");
             using var info=JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             if(info.RootElement.GetProperty("id").GetString()!=d.Id)throw new InvalidDataException("O IP responde com outro cadastro de agente; este registro pode ser antigo.");
             if(closing||IsDisposed)return;
@@ -322,7 +323,23 @@ sealed class Technician:Form
             var root=info.RootElement;
             var previous=observations.GetValueOrDefault(d.Id);
             string Field(string key)=>root.TryGetProperty(key,out var value)&&value.ValueKind==JsonValueKind.String?value.GetString()??"":"";
-            observations[d.Id]=new(Field("hostname") is {Length:>0} host?host:MachineNames.Display(d,previous),Field("description"),Field("os"),Field("osVersion"),Field("version"),DateTimeOffset.UtcNow);
+            observations[d.Id]=new(Field("hostname") is {Length:>0} host?host:MachineNames.Display(d,previous),Field("description"),!string.IsNullOrWhiteSpace(previous?.RamTotal)?previous.OS:Field("os"),Field("osVersion"),Field("version"),DateTimeOffset.UtcNow,previous?.RamTotal??"");
+            // Inventory is authenticated and pinned like /info; cache expensive hardware
+            // reads rather than querying them with every presence heartbeat.
+            if(root.TryGetProperty("capabilities",out var capabilities)&&capabilities.ValueKind==JsonValueKind.Array
+                &&capabilities.EnumerateArray().Any(c=>c.ValueKind==JsonValueKind.String&&c.GetString()=="inventory")
+                &&(!inventoryChecked.TryGetValue(d.Id,out var checkedAt)||DateTimeOffset.UtcNow-checkedAt>TimeSpan.FromMinutes(5)))
+            {
+                inventoryChecked[d.Id]=DateTimeOffset.UtcNow;
+                try
+                {
+                    using var inventoryResponse=await candidate.Request(HttpMethod.Get,"/inventory");
+                    var inventory=JsonSerializer.Deserialize<Dictionary<string,string>>(await inventoryResponse.Content.ReadAsStringAsync(),Json.Options);
+                    if(closing||IsDisposed)return;
+                    if(inventory is not null)observations[d.Id]=MachineDescriptions.ApplyInventory(observations[d.Id],inventory);
+                }
+                catch{ /* A failed inventory read does not invalidate a successful presence check. */ }
+            }
             Json.Write(ObservationsPath,observations);
             var existing=devices.FirstOrDefault(x=>x.Id==d.Id);
             if(existing!=d){devices.RemoveAll(x=>x.Id==d.Id);devices.Add(d);dirty=true;}
