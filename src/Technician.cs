@@ -316,7 +316,7 @@ sealed class Technician:Form
             if(closing||IsDisposed)return;
             using var candidate=new RemoteClient(d,identity,TimeSpan.FromSeconds(2));using var response=await candidate.Request(HttpMethod.Get,"/info");
             using var info=JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-            if(info.RootElement.GetProperty("id").GetString()!=d.Id)return;
+            if(info.RootElement.GetProperty("id").GetString()!=d.Id)throw new InvalidDataException("O IP responde com outro cadastro de agente; este registro pode ser antigo.");
             if(closing||IsDisposed)return;
             online[d.Id]=DateTimeOffset.UtcNow;connectionErrors.Remove(d.Id);
             var root=info.RootElement;
@@ -331,7 +331,7 @@ sealed class Technician:Form
         catch(Exception e)
         {
             online.Remove(d.Id);
-            connectionErrors[d.Id]=e is HttpRequestException h&&h.StatusCode is not null?$"HTTP {(int)h.StatusCode}: verifique autorização e versão do Cliente":e is TaskCanceledException?"Agente não respondeu a tempo; confira se está aberto":e is HttpRequestException?"Sem conexão segura com o agente; confira IP, Cliente e firewall":"Não foi possível ler os dados do agente";
+            connectionErrors[d.Id]=e is HttpRequestException h&&h.StatusCode is not null?$"HTTP {(int)h.StatusCode}: verifique autorização e versão do Cliente":e is InvalidDataException?e.Message:e is TaskCanceledException?"Agente não respondeu a tempo; confira se está aberto":e is HttpRequestException?"Sem conexão segura com o agente; confira IP, Cliente e firewall":"Não foi possível ler os dados do agente";
             if(!IsDisposed&&!closing)Filter(search.Text);
         }
         finally{checking.Remove(d.Id);probes.Release();}
