@@ -24,6 +24,11 @@ function Write-UpdateStatus([string]$Role,[string]$Status,[string]$Target,[strin
     $tempStatus=$path+'.tmp'
     [IO.File]::WriteAllText($tempStatus,($statusData|ConvertTo-Json -Depth 5),(New-Object Text.UTF8Encoding($false)))
     Move-Item $tempStatus $path -Force
+    if($Role -in @('Agent','Technician')) {
+        $rolePath=Join-Path $state ('status-'+$Role+'.json')
+        [IO.File]::WriteAllText(($rolePath+'.tmp'),($statusData|ConvertTo-Json -Depth 5),(New-Object Text.UTF8Encoding($false)))
+        Move-Item ($rolePath+'.tmp') $rolePath -Force
+    }
 }
 try {
     try {$lockHandle=[IO.File]::Open($lock,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::Write,[IO.FileShare]::Read)}

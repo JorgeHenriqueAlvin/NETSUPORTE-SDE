@@ -210,7 +210,7 @@ sealed class Technician:Form
         var localState=new Button{Dock=DockStyle.Top,Height=45,Text="Ver resultado local do atualizador"};
         localState.Click+=(_,_)=>{
             var root=Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,".."));
-            var state=OperationalData.UpdateStatus(root);
+            var state=OperationalData.UpdateStatus(root,"Technician");
             result.Text=state is {} data?JsonSerializer.Serialize(data,new JsonSerializerOptions{WriteIndented=true}):"Ainda não existe resultado local. Execute o atualizador e consulte novamente.";
         };
         page.Controls.Add(result);page.Controls.Add(localState);page.Controls.Add(recover);page.Controls.Add(check);page.Controls.Add(description);page.Controls.Add(title);return page;

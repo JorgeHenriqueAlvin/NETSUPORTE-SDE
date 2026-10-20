@@ -111,7 +111,12 @@ sealed class OperationsPanel:UserControl
                     // Rebuild from retained entries instead of dropping the dedup set
                     // arbitrarily and duplicating the agent's entire tail on every poll.
                     if(ids.Count>2000)seen[d.Id]=OperationalData.Tail(path,1000).Select(x=>x.GetProperty("eventId").GetString()!).ToHashSet();
-                    if(events.LastOrDefault() is var last&&last.ValueKind==JsonValueKind.Object)row.Cells[5].Value=Field(last,"action")+" • "+Field(last,"technician");
+                    if(events.LastOrDefault() is var last&&last.ValueKind==JsonValueKind.Object)
+                    {
+                        string action=Field(last,"action");
+                        row.Cells[5].Value=action+" • "+Field(last,"technician");
+                        row.Cells[5].Style.ForeColor=action.Contains("error")||action.Contains("declined")||action.Contains("denied")?Color.Firebrick:Color.Black;
+                    }
                     row.Cells[6].Value=DateTimeOffset.Now.ToString("g");ok++;
                 }
                 catch(OperationCanceledException)when(token.IsCancellationRequested){}

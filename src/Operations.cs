@@ -41,11 +41,12 @@ public static class OperationalData
             return lines.ToArray();
         }
     }
-    public static JsonElement? UpdateStatus(string root)
+    public static JsonElement? UpdateStatus(string root,string role="Agent")
     {
         try
         {
-            var path=Path.Combine(root,"UpdateCache","status.json");
+            var path=Path.Combine(root,"UpdateCache",role=="Technician"?"status-Technician.json":"status-Agent.json");
+            if(!File.Exists(path))path=Path.Combine(root,"UpdateCache","status.json");
             if(!File.Exists(path)||new FileInfo(path).Length>65536)return null;
             using var document=JsonDocument.Parse(File.ReadAllText(path));
             return document.RootElement.Clone();
