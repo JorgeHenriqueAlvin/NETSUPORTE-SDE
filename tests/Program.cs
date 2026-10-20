@@ -144,6 +144,14 @@ static class Tests
                     var onlineOnly=(CheckBox)typeof(Technician).GetField("onlyOnline",flags)!.GetValue(console)!;
                     filter.Invoke(console,new object[]{""});
                     Check(agentList.Items.Count==3&&presence.ContainsKey(((Device)agentList.Items[0]).Id),"lista preserva salvos e prioriza conectados");
+                    agentList.SelectedIndex=1;var chosen=((Device)agentList.SelectedItem!).Id;
+                    filter.Invoke(console,new object[]{""});
+                    Check(((Device)agentList.SelectedItem!).Id==chosen,"heartbeat preserva selecao da maquina");
+                    Check(tabs.Multiline&&agentList.AccessibleName=="Máquinas da equipe","abas responsivas e lista identificada para acessibilidade");
+                    console.Size=new Size(900,560);Application.DoEvents();
+                    Check(tabs.Width>400&&agentList.Width>=270,"janela compacta preserva area de atendimento e lista");
+                    console.Size=new Size(1360,850);Application.DoEvents();
+
                     onlineOnly.Checked=true;
                     Check(agentList.Items.Count==2,"filtro mostra apenas agentes com comunicacao recente");
                     filter.Invoke(console,new object[]{"Cliente 1"});
@@ -371,8 +379,57 @@ static class Tests
         Device? found=null;for(int i=0;i<15&&found is null;i++){found=await NetworkScanner.Discover(IPAddress.Loopback,config.Device.Port,[TeamAccess.Root.Id],"scanner",CancellationToken.None);if(found is null)await Task.Delay(500);}
         Check(found?.Id==config.Device.Id,"cliente instalado fica disponivel para varredura IP");
     }
+    static void StorageAndTransportTests()
+    {
+        var directory=Path.Combine(Path.GetTempPath(),"sde-quality-"+Guid.NewGuid());Directory.CreateDirectory(directory);
+        try
+        {
+            var file=Path.Combine(directory,"state.json");
+            Json.Write(file,new{version=1});
+            try{Json.Write(file,new{invalid=double.NaN});throw new Exception("Serializacao invalida aceita.");}catch(ArgumentException){}
+            Check(Json.Read<JsonElement>(file).GetProperty("version").GetInt32()==1,"falha de serializacao preserva cadastro anterior");
+            Json.Write(file,new{version=2});
+            Check(Json.Read<JsonElement>(file).GetProperty("version").GetInt32()==2&&Directory.GetFiles(directory).Length==1,"cadastro publicado completo sem arquivo temporario residual");
+            using var identity=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Teste");
+            var device=new Device(Guid.NewGuid().ToString(),"PC","Teste","127.0.0.1",17443,new string('A',64));
+            foreach(var invalid in new[]{device with{Name="PC\ninvalido"},device with{Sector=new string('x',101)},device with{CertificateSha256=null!}})
+            {
+                bool rejected=false;try{invalid.Validate();}catch(InvalidDataException){rejected=true;}
+                Check(rejected,"cadastro com campos invalidos rejeitado de forma controlada");
+            }
+            using var remote=new RemoteClient(device,identity);
+            foreach(var path in new[]{"https://example.com/info","//example.com/info","/info\r\nX:bad","/a\\b"})
+            {
+                bool rejected=false;try{remote.Request(HttpMethod.Get,path).GetAwaiter().GetResult();}catch(ArgumentException){rejected=true;}
+                Check(rejected,"rota externa ou ambigua nao recebe credenciais");
+            }
+            using var stop=new CancellationTokenSource();stop.Cancel();
+            bool cancelled=false;
+            try{remote.Request(HttpMethod.Get,"/info",cancellation:stop.Token).GetAwaiter().GetResult();}catch(OperationCanceledException){cancelled=true;}
+            Check(cancelled,"consulta cancelada antes de abrir conexao");
+            var listener=new System.Net.Sockets.TcpListener(IPAddress.Loopback,0);listener.Start();
+            try
+            {
+                int port=((IPEndPoint)listener.LocalEndpoint).Port;
+                using var stalled=new RemoteClient(device with{Port=port},identity,TimeSpan.FromSeconds(10));
+                using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(1));
+                var watch=System.Diagnostics.Stopwatch.StartNew();
+                var request=stalled.Request(HttpMethod.Get,"/info",cancellation:timeout.Token);
+                using var socket=listener.AcceptTcpClientAsync().WaitAsync(TimeSpan.FromSeconds(3)).GetAwaiter().GetResult();
+                bool interrupted=false;
+                try{using var unexpected=request.GetAwaiter().GetResult();}catch(OperationCanceledException){interrupted=true;}
+                Check(interrupted&&watch.Elapsed<TimeSpan.FromSeconds(4),"cancelamento interrompe conexao TLS em andamento");
+            }
+            finally{listener.Stop();}
+            var events=Path.Combine(directory,"events.jsonl");
+            OperationalData.WriteMany(events,Enumerable.Range(0,200).Select(i=>(object)new{id=i,action="batch"}));
+            Check(OperationalData.Tail(events).Length==200,"lote de auditoria preserva eventos em uma gravacao");
+        }
+        finally{Directory.Delete(directory,true);}
+    }
     static void Protocol()
     {
+        StorageAndTransportTests();
         using var id=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Jorge Henrique");
         using var other=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Outro");
         using(var persistent=CngKey.Create(CngAlgorithm.ECDsaP256,"SDE-Test-"+Guid.NewGuid().ToString("N"),new CngKeyCreationParameters{ExportPolicy=CngExportPolicies.None}))

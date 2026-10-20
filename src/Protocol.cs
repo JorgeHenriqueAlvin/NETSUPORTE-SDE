@@ -11,10 +11,11 @@ public record Device(string Id, string Name, string Sector, string Host, int Por
     public override string ToString() => $"{Name} • {Sector} ({Host})";
     public void Validate()
     {
-        if (!Guid.TryParse(Id,out _) || string.IsNullOrWhiteSpace(Name) || string.IsNullOrWhiteSpace(Sector)
-            || string.IsNullOrWhiteSpace(Host) || Uri.CheckHostName(Host) == UriHostNameType.Unknown
-            || Host.Contains(':') || Port is < 1024 or > 65535 || CertificateSha256.Length != 64
-            || !CertificateSha256.All(Uri.IsHexDigit)) throw new InvalidDataException("Arquivo de computador inválido.");
+        static bool Text(string? value,int max)=>!string.IsNullOrWhiteSpace(value)&&value.Length<=max&&!value.Any(char.IsControl);
+        if (!Guid.TryParse(Id,out _) || !Text(Name,256) || !Text(Sector,100) || !Text(Host,253)
+            || Uri.CheckHostName(Host)==UriHostNameType.Unknown || Host.Contains(':') || Host.Contains('\\')
+            || Port is <1024 or >65535 || CertificateSha256 is null || CertificateSha256.Length!=64
+            || !CertificateSha256.All(Uri.IsHexDigit))throw new InvalidDataException("Arquivo de computador inválido.");
     }
 }
 public record AgentConfig(Device Device, TechnicianKey[] Technicians, bool RequireConsent = true, DeviceEnrollment? Enrollment = null);
@@ -36,7 +37,21 @@ public static class Json
 {
     public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web) { WriteIndented=true };
     public static T Read<T>(string path) => JsonSerializer.Deserialize<T>(File.ReadAllText(path),Options) ?? throw new InvalidDataException("Arquivo vazio.");
-    public static void Write<T>(string path,T value) => File.WriteAllText(path,JsonSerializer.Serialize(value,Options),new UTF8Encoding(false));
+    // A failed serialization/write must leave the previous complete document intact.
+    // Temp file stays on the same volume so publishing the new snapshot is atomic.
+    public static void Write<T>(string path,T value)
+    {
+        var bytes=JsonSerializer.SerializeToUtf8Bytes(value,Options);
+        string destination=Path.GetFullPath(path);
+        string temporary=Path.Combine(Path.GetDirectoryName(destination)!,"."+Path.GetFileName(destination)+"."+Guid.NewGuid().ToString("N")+".tmp");
+        try
+        {
+            using(var file=new FileStream(temporary,FileMode.CreateNew,FileAccess.Write,FileShare.None))
+            {file.Write(bytes);file.Flush(true);}
+            File.Move(temporary,destination,true);
+        }
+        finally{if(File.Exists(temporary))File.Delete(temporary);}
+    }
 }
 public sealed class TechnicianIdentity : IDisposable
 {
@@ -111,17 +126,20 @@ public sealed class RemoteClient : IDisposable
             ServerCertificateCustomValidationCallback=(_,cert,_,_) => cert is not null
                 && DateTime.UtcNow>=cert.NotBefore.ToUniversalTime() && DateTime.UtcNow<=cert.NotAfter.ToUniversalTime()
                 && string.Equals(Convert.ToHexString(SHA256.HashData(cert.RawData)),device.CertificateSha256,StringComparison.OrdinalIgnoreCase)
-        }) { BaseAddress=new Uri($"https://{device.Host}:{device.Port}"),Timeout=timeout??TimeSpan.FromSeconds(40) };
+        }) { BaseAddress=new Uri($"https://{device.Host}:{device.Port}"),Timeout=timeout??TimeSpan.FromSeconds(40),MaxResponseContentBufferSize=32*1024*1024 };
     }
-    public async Task<HttpResponseMessage> Request(HttpMethod method,string path,object? value=null)
+    public async Task<HttpResponseMessage> Request(HttpMethod method,string path,object? value=null,CancellationToken cancellation=default)
     {
+        if(string.IsNullOrEmpty(path)||path[0]!='/'||path.StartsWith("//")||path.Contains('\\')||path.Any(char.IsControl))
+            throw new ArgumentException("A operação deve usar uma rota local válida.",nameof(path));
         for(int attempt=0;;attempt++)
         {
-            try{return await RequestOnce(method,path,value);}
-            catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.TooManyRequests&&attempt<3){await Task.Delay(150);}
+            cancellation.ThrowIfCancellationRequested();
+            try{return await RequestOnce(method,path,value,cancellation);}
+            catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.TooManyRequests&&attempt<3){await Task.Delay(150,cancellation);}
         }
     }
-    async Task<HttpResponseMessage> RequestOnce(HttpMethod method,string path,object? value)
+    async Task<HttpResponseMessage> RequestOnce(HttpMethod method,string path,object? value,CancellationToken cancellation)
     {
         byte[] body=value is null ? [] : JsonSerializer.SerializeToUtf8Bytes(value,Json.Options);
         string time=DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -133,17 +151,26 @@ public sealed class RemoteClient : IDisposable
         if(identity.Credential is not null)request.Headers.Add("X-Team-Credential",TeamAccess.Encode(identity.Credential));
         request.Headers.Add("X-Signature",identity.Sign(method.Method,path,body,session,time,nonce,deviceId));
         if(value is not null) { request.Content=new ByteArrayContent(body); request.Content.Headers.ContentType=new("application/json"); }
-        using var requestLimit=new CancellationTokenSource(TimeSpan.FromSeconds(path=="/session"?40:8));
+        using var requestLimit=CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        requestLimit.CancelAfter(TimeSpan.FromSeconds(path=="/session"?40:8));
         var response=await http.SendAsync(request,requestLimit.Token);
         if(!response.IsSuccessStatusCode)
         {
-            string message=await response.Content.ReadAsStringAsync(); var status=response.StatusCode; response.Dispose();
+            var status=response.StatusCode;string message;
+            try
+            {
+                message=await response.Content.ReadAsStringAsync(requestLimit.Token);
+                try{using var error=JsonDocument.Parse(message);if(error.RootElement.ValueKind==JsonValueKind.Object&&error.RootElement.TryGetProperty("error",out var field)&&field.ValueKind==JsonValueKind.String)message=field.GetString()??"";}
+                catch(JsonException){}
+                if(message.Length>512)message=message[..512]+"…";
+            }
+            finally{response.Dispose();}
             throw new HttpRequestException($"HTTP {(int)status}: {message}",null,status);
         }
         return response;
     }
-    public async Task Start() { using var r=await Request(HttpMethod.Post,"/session"); Session=JsonSerializer.Deserialize<RemoteSession>(await r.Content.ReadAsStringAsync(),Json.Options)??throw new Exception("Sessão inválida."); }
-    public async Task Stop() { try {if(Session is not null) {using var r=await Request(HttpMethod.Post,"/session/end");}}finally{Session=null;} }
+    public async Task Start(CancellationToken cancellation=default) { using var r=await Request(HttpMethod.Post,"/session",cancellation:cancellation); Session=JsonSerializer.Deserialize<RemoteSession>(await r.Content.ReadAsStringAsync(),Json.Options)??throw new Exception("Sessão inválida."); }
+    public async Task Stop(CancellationToken cancellation=default) { try {if(Session is not null) {using var r=await Request(HttpMethod.Post,"/session/end",cancellation:cancellation);}}finally{Session=null;} }
     public void Dispose()=>http.Dispose();
 }
 

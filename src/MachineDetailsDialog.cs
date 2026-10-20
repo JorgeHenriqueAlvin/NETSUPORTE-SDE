@@ -23,7 +23,7 @@ sealed class MachineDetailsDialog:Form
             try
             {
                 using var remote=new RemoteClient(device,identity,TimeSpan.FromSeconds(10));
-                using var infoResponse=await remote.Request(HttpMethod.Get,"/info").WaitAsync(token);
+                using var infoResponse=await remote.Request(HttpMethod.Get,"/info",cancellation:token);
                 using var info=JsonDocument.Parse(await infoResponse.Content.ReadAsStringAsync(token));
                 if(!info.RootElement.TryGetProperty("id",out var id)||id.GetString()!=device.Id)throw new InvalidDataException("Identificação divergente.");
                 if(!info.RootElement.TryGetProperty("capabilities",out var caps)||!caps.EnumerateArray().Any(c=>c.GetString()=="inventory"))
@@ -31,7 +31,7 @@ sealed class MachineDetailsDialog:Form
                     if(!IsDisposed)report.Text=$"Nome cadastrado: {device.Name}\r\nIP: {device.Host}\r\n\r\nEste agente ainda não fornece as configurações. Atualize o Cliente Windows para 0.12.8 ou instale a nova versão do agente Linux.\r\nA atualização apenas do Técnico não habilita o inventário nos agentes antigos.";
                     return;
                 }
-                using var response=await remote.Request(HttpMethod.Get,"/inventory").WaitAsync(token);
+                using var response=await remote.Request(HttpMethod.Get,"/inventory",cancellation:token);
                 var fields=JsonSerializer.Deserialize<Dictionary<string,string>>(await response.Content.ReadAsStringAsync(token),Json.Options)??throw new InvalidDataException("Inventário vazio.");
                 if(!IsDisposed)report.Text="Origem: agente autenticado; conexão com certificado fixado ao cadastro.\r\n\r\n"+string.Join("\r\n\r\n",fields.Select(p=>$"{p.Key}: {p.Value}"))+"\r\n\r\nCampos indisponíveis neste sistema podem ser omitidos. RAM e espaço livre refletem o momento da consulta.";
             }
