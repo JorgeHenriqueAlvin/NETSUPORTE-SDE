@@ -27,6 +27,19 @@ try
     Check(PresencePolicy.RetryDelay(0).TotalSeconds==12,"Online cadence");
     Check(PresencePolicy.RetryDelay(8).TotalSeconds==120,"Bound offline backoff");
     Check(!PresencePolicy.IsRecent(now.AddSeconds(-46),now),"Old heartbeat must not be online");
+    // Model a 400-host round with bounded concurrent slots and real task delays.
+    int active=0,maximum=0;
+    using(var gate=new SemaphoreSlim(32))
+    {
+        await Task.WhenAll(Enumerable.Range(0,400).Select(async _=>{
+            await gate.WaitAsync();
+            int count=Interlocked.Increment(ref active);
+            int observed;
+            do{observed=maximum;if(count<=observed)break;}while(Interlocked.CompareExchange(ref maximum,count,observed)!=observed);
+            try{await Task.Delay(2);}finally{Interlocked.Decrement(ref active);gate.Release();}
+        }));
+    }
+    Check(maximum<=32&&maximum>1&&active==0,"400-host concurrency simulation");
     Console.WriteLine("OK: bounded audit, rotation, maintenance expiry, status and presence policy.");
 }
 finally{Directory.Delete(root,true);}

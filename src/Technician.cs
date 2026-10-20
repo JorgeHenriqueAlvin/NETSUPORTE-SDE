@@ -196,15 +196,24 @@ sealed class Technician:Form
         var check=new Button{Dock=DockStyle.Top,Height=45,Text="Verificar nova versão"};
         check.Click+=async(_,_)=>{check.Enabled=false;try{using var http=new HttpClient{Timeout=TimeSpan.FromSeconds(20)};using var data=JsonDocument.Parse(await http.GetStringAsync("https://github.com/JorgeHenriqueAlvin/NETSUPORTE-SDE/releases/latest/download/update.json"));string version=data.RootElement.GetProperty("version").GetString()??"";var current=System.Reflection.Assembly.GetExecutingAssembly().GetName().Version??new Version(0,0);result.Text=Version.TryParse(version,out var next)&&next>current?$"Versão {version} disponível. O atualizador fará a instalação automaticamente quando os aplicativos estiverem fechados.":$"Você está usando a versão mais recente ({current.ToString(3)}).";}catch(Exception){result.Text="Não foi possível consultar o GitHub. O suporte na rede local continua disponível; o atualizador tentará novamente depois.";}finally{if(!check.IsDisposed)check.Enabled=true;}};
         var recover=new Button{Dock=DockStyle.Top,Height=45,Text="Executar atualizador confiável / recuperar pacote"};
-        recover.Click+=(_,_)=>{
+        recover.Click+=async(_,_)=>{
             try{
                 var start=new System.Diagnostics.ProcessStartInfo("schtasks.exe"){UseShellExecute=false,CreateNoWindow=true};
                 foreach(var arg in new[]{"/Run","/TN","SDE-Suporte-Atualizacao"})start.ArgumentList.Add(arg);
-                using var process=System.Diagnostics.Process.Start(start);
+                using var process=System.Diagnostics.Process.Start(start)??throw new IOException("Não foi possível abrir o Agendador.");
+                await process.WaitForExitAsync();
+                if(process.ExitCode!=0)throw new IOException("A tarefa recusou a solicitação. Verifique se existe e se esta conta pode executá-la.");
+                if(result.IsDisposed)return;
                 result.Text="Solicitação enviada à tarefa de atualização registrada. Feche o Técnico para permitir a instalação. Consulte o log do atualizador para confirmar o resultado. O atualizador também verifica e recupera o pacote Cliente danificado da mesma versão. Veja o resultado na aba Estado e logs.";
             }catch(Exception e){result.Text="Não foi possível iniciar o atualizador: "+e.Message;}
         };
-        page.Controls.Add(result);page.Controls.Add(recover);page.Controls.Add(check);page.Controls.Add(description);page.Controls.Add(title);return page;
+        var localState=new Button{Dock=DockStyle.Top,Height=45,Text="Ver resultado local do atualizador"};
+        localState.Click+=(_,_)=>{
+            var root=Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,".."));
+            var state=OperationalData.UpdateStatus(root);
+            result.Text=state is {} data?JsonSerializer.Serialize(data,new JsonSerializerOptions{WriteIndented=true}):"Ainda não existe resultado local. Execute o atualizador e consulte novamente.";
+        };
+        page.Controls.Add(result);page.Controls.Add(localState);page.Controls.Add(recover);page.Controls.Add(check);page.Controls.Add(description);page.Controls.Add(title);return page;
     }
     void LoadTeamCredential()
     {
