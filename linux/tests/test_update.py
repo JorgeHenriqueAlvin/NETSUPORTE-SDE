@@ -16,6 +16,7 @@ class UpdaterTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         updater.INSTALL = self.root / "install"
+        updater.LAUNCHER = self.root / "bin" / "launcher"
         updater.STATE = self.root / "state"
         updater.INSTALL.mkdir()
         updater.STATE.mkdir()

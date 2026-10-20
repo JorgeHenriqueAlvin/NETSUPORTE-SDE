@@ -76,7 +76,7 @@ try {
     foreach ($role in @(@{Folder='Agent';Exe='SDE-Suporte-Cliente.exe';Asset='SDE-Suporte-Cliente-Instalar.exe'},@{Folder='Technician';Exe='SDE-Suporte-Tecnico.exe';Asset='SDE-Suporte-Tecnico-Base.exe'})) {
         $binary=Join-Path $root ($role.Folder+'\'+$role.Exe)
         if (!(Test-Path $binary)) { continue }
-        $current=[version]([Diagnostics.FileVersionInfo]::GetVersionInfo($binary).FileVersion)
+        $current=[version](([version]([Diagnostics.FileVersionInfo]::GetVersionInfo($binary).FileVersion)).ToString(3))
         if ([version]$manifest.version -lt $current) { continue }
         $repair=$false
         if($role.Folder -eq 'Technician' -and [version]$manifest.version -eq $current) {

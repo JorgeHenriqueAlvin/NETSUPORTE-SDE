@@ -20,12 +20,12 @@ trap 'cleanup; exit 0' TERM INT HUP
   python3 "$install_dir/update.py" --check >> "$state_dir/startup.log" 2>&1 || true
   sleep 3600
  done
-) &
+) 9>&- &
 worker=$!
 delay=3
 while true; do
  started=$SECONDS
- "$install_dir/SDE-Suporte-Cliente-Linux" >> "$state_dir/startup.log" 2>&1 &
+ "$install_dir/SDE-Suporte-Cliente-Linux" 9>&- >> "$state_dir/startup.log" 2>&1 &
  agent=$!
  printf '%s\n' "$agent" > "$install_dir/agent.pid"
  printf '%s\n' "$$" > "$install_dir/supervisor.pid"

@@ -15,6 +15,7 @@ ORIGIN = "https://github.com/JorgeHenriqueAlvin/NETSUPORTE-SDE/releases/download
 ASSET = "SDE-Suporte-Raspberry-Pi-ARM64.tar.gz"
 STATE = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))) / "SdeSuporte" / "UpdateCache"
 INSTALL = Path.home() / ".local/lib/sde-suporte"
+LAUNCHER = Path.home() / ".local/bin/sde-suporte-cliente"
 MAX_BYTES = 250_000_000
 
 def version(value):
@@ -110,6 +111,14 @@ def apply():
     except Exception:
         backup.rename(INSTALL)
         raise
+    launcher = INSTALL / "launch.sh"
+    if launcher.is_file():
+        destination = LAUNCHER
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_suffix(".next")
+        shutil.copyfile(launcher, temporary)
+        temporary.chmod(0o700)
+        temporary.replace(destination)
     (STATE / "pending.json").unlink(missing_ok=True)
     status("Installed", target, "Arquivos e versao verificados; reiniciando agente")
     package.unlink(missing_ok=True)

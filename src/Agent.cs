@@ -76,7 +76,7 @@ sealed class Agent:Form
                         var script=Path.Combine(root,"scripts","Resume-Agent.ps1");
                         if(!File.Exists(script))return;
                         var start=new System.Diagnostics.ProcessStartInfo("powershell.exe"){UseShellExecute=false,CreateNoWindow=true};
-                        foreach(var arg in new[]{"-NoProfile","-NonInteractive","-File",script})start.ArgumentList.Add(arg);
+                        foreach(var arg in new[]{"-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-File",script})start.ArgumentList.Add(arg);
                         using var resume=System.Diagnostics.Process.Start(start);
                         if(resume is null)return;
                         maintenance=true;Audit("update_idle_shutdown","atualizador");Close();
