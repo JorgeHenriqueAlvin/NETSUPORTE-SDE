@@ -1,3 +1,8 @@
+# SDE Suporte 0.12.14
+
+Consulte [operação, atualização e limites da versão atual](docs/OPERACAO-0.12.14.md).
+A aba **Estado e logs** reúne versão, atualização, atendimento, eventos recentes e diagnóstico por máquina. Novos Clientes Windows e Raspberry podem atualizar quando ficam ociosos; agentes anteriores precisam receber esta versão primeiro. O console Windows deve ser fechado para sua própria atualização. Eventos são coletados no computador do técnico, sem sincronização central entre técnicos.
+
 ## Usuário conectado — versão Windows 0.12.13
 
 A lista do Técnico exibe **Usuário conectado: DOMÍNIO\login**, separado do nome do computador, do sistema operacional e da RAM. O Cliente consulta a sessão Windows onde está executando; não usa o nome do técnico nem a conta administrativa de um processo elevado. A informação é atualizada nas verificações de presença e também aparece no inventário detalhado.
@@ -12,7 +17,7 @@ A lista mostra o nome do computador cliente, o IP, o sistema operacional e a RAM
 
 Se a consulta de inventário falhar, a presença confirmada por `/info` continua válida e os últimos dados conhecidos são preservados. Agentes antigos sem inventário mostram “RAM total: não informada”; atualize o Cliente para obter a memória. A descrição administrativa permanece disponível abaixo do sistema e da RAM. “Nome do cliente” nesta lista significa o nome do computador.
 
-# SDE Suporte 0.8.0 — descoberta sem agente e implantação remota
+## Descoberta e implantação remota
 
 Suporte remoto interno com dois instaladores: **Técnico** e **Cliente**. Não exige Active Directory, domínio, servidor externo ou exportação de identificações entre computadores.
 
@@ -81,7 +86,7 @@ Implementado: lista automática, varredura por IP, filtro, estado de conexão, v
 
 O agente funciona **na sessão do funcionário**. É necessário estar conectado ao Windows e com a área de trabalho desbloqueada. Não controla login, tela bloqueada ou a área protegida do UAC; aplicações elevadas podem recusar entrada de um agente sem elevação. Não é um serviço do Windows. Um usuário local pode encerrá-lo pelo Gerenciador de Tarefas.
 
-Ainda não há transferência de arquivos, inventário completo, impressão remota, gravação de sessão ou auditoria centralizada. Não há equivalência integral ao NetSupport nem assinatura Authenticode dos instaladores.
+Ainda não há transferência de arquivos, impressão remota ou gravação de sessão. O inventário cobre os campos disponíveis no sistema. A coleta de auditoria mantém eventos recentes no console, sem servidor central. Não há equivalência integral ao NetSupport nem assinatura Authenticode dos instaladores.
 
 ## Compilar e verificar
 

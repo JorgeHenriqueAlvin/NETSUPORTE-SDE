@@ -60,6 +60,21 @@ try{
     }
     try{using var deniedInventory=await forbidden.Request(HttpMethod.Get,"/inventory");throw new Exception("Unauthorized inventory accepted.");}catch(HttpRequestException e)when(e.StatusCode==System.Net.HttpStatusCode.Forbidden){}
     try{using var info=await forbidden.Request(HttpMethod.Get,"/info");throw new Exception("Unauthorized identity accepted.");}catch(HttpRequestException e)when(e.StatusCode==System.Net.HttpStatusCode.Forbidden){}
+    foreach(var endpoint in new[]{"/health","/audit"})
+    {
+        try{using var denied=await forbidden.Request(HttpMethod.Get,endpoint);throw new Exception("Unauthorized operations accepted.");}
+        catch(HttpRequestException e)when(e.StatusCode==System.Net.HttpStatusCode.Forbidden){}
+    }
+    using(var health=await client.Request(HttpMethod.Get,"/health"))
+    {
+        using var doc=JsonDocument.Parse(await health.Content.ReadAsStringAsync());
+        if(doc.RootElement.GetProperty("deviceId").GetString()!=device.Id||doc.RootElement.GetProperty("activeSession").GetBoolean())throw new Exception("Invalid operational health.");
+    }
+    using(var audit=await client.Request(HttpMethod.Get,"/audit"))
+    {
+        var events=JsonSerializer.Deserialize<JsonElement[]>(await audit.Content.ReadAsStringAsync())!;
+        if(events.Length>200||!events.Any(x=>x.GetProperty("action").GetString()=="inventory_read"))throw new Exception("Operational audit missing inventory event.");
+    }
     if(System.Net.IPAddress.TryParse(device.Host,out var reachable)){
         var manual=await AgentConnection.Test(device.Host,[issuer.Public.Id],tech,port:device.Port);
         if(!manual.CanSave||manual.Device?.Name!="Test Pi"||manual.Device.Id!=device.Id)throw new Exception("Manual add failed: "+manual.Message);
@@ -70,6 +85,11 @@ try{
         Console.WriteLine("PASS: manual IP diagnostic, verified machine name and rejection of wrong team / unauthorized technician.");
     }
     await client.Start();
+    using(var health=await client.Request(HttpMethod.Get,"/health"))
+    {
+        using var data=JsonDocument.Parse(await health.Content.ReadAsStringAsync());
+        if(!data.RootElement.GetProperty("activeSession").GetBoolean())throw new Exception("Active support session missing from health.");
+    }
     using(var sent=await client.Request(HttpMethod.Post,"/chat",new{text="hello"})){}
     using(var reply=await client.Request(HttpMethod.Get,"/chat?after=0")){
         using var json=JsonDocument.Parse(await reply.Content.ReadAsStringAsync());

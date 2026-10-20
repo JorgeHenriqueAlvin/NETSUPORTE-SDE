@@ -1,4 +1,4 @@
-#define AppVersion "0.12.13"
+#define AppVersion "0.12.14"
 #ifndef SetupRole
   #define SetupRole "combined"
 #endif
@@ -67,7 +67,8 @@ Source: "..\scripts\Uninstall-Agent.ps1"; DestDir: "{app}\scripts"{#ClientCompon
 Source: "..\scripts\AutoConfigure-Agent.ps1"; DestDir: "{app}\scripts"{#ClientComponent}
 Source: "..\src\TeamDeployment.json"; DestDir: "{app}\scripts"; DestName: "team-deployment.json"{#ClientComponent}
 #endif
-Source: "..\scripts\Update-Sde.ps1"; DestDir: "{app}\scripts"
+Source: "..\scripts\Update-Sde.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "..\scripts\Resume-Agent.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "..\scripts\Cleanup-Agent.ps1"; DestDir: "{app}\scripts"
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\QUICKSTART.md"; DestDir: "{app}"; Flags: ignoreversion
