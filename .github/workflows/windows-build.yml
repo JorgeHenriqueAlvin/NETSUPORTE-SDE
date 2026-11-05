@@ -31,6 +31,9 @@ jobs:
             [System.Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$tokens,[ref]$errors) | Out-Null
             if ($errors.Count) { throw ($errors | Out-String) }
           }
+      - name: Validar contas da implantacao SMB
+        shell: powershell
+        run: ./tests/Test-Deployment.ps1
       - name: Testar auditoria, manutencao e politica de presenca
         run: dotnet run --project tests-operations/Operations.Tests.csproj -c Release
       - name: Compilar aplicativos Windows

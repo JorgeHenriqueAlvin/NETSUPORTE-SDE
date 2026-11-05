@@ -68,7 +68,7 @@ sealed class DeploymentPanel:UserControl
         Dock=DockStyle.Fill;Padding=new Padding(8);
         var help=new Label{Dock=DockStyle.Top,Height=120,Text="INVENTÁRIO DA REDE E IMPLANTAÇÃO\nA busca usa ping e portas do Windows, sem exigir agente. Portas abertas não comprovam que a máquina é Windows.\nHostname, usuário, descrição e RAM só são exibidos quando fornecidos por um agente SDE autenticado.\nSelecione o método de instalação:\n • SMB + Agendador (recomendado, não exige WinRM; requer conta admin, ADMIN$ e Agendador/RPC remoto).\n • HTTPS/Kerberos (WinRM): mais rigoroso, exige WinRM habilitado nas máquinas-alvo.\nA busca automática permanece na sub-rede efetiva; informe outras redes internas explicitamente. A senha não é gravada."};
         string instructions=help.Text;
-        help.Text="Pesquise nas faixas internas autorizadas. Confirme os dados e selecione as máquinas para instalar ou atualizar o agente.";
+        help.Text="1. Clique em Localizar máquinas para buscar na rede interna.\n2. Clique em Selecionar compatíveis e confira os destinos marcados.\n3. Clique em Instalar Cliente nas selecionadas e informe a conta administrativa.\nSMB + Agendador já está selecionado e não exige WinRM. Encontrar uma máquina não garante permissão para instalar.";
         var bar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=85,AutoScroll=true};
         networks.Text=string.Join("; ",IPv4Range.LocalCidrs());
         var find=new Button{Text="Localizar máquinas",AutoSize=true};find.Click+=async(_,_)=>await Scan();
@@ -93,10 +93,10 @@ sealed class DeploymentPanel:UserControl
         export.Click+=(_,_)=>{try{ExportCsv();}catch(Exception e){status.Text="Não foi possível exportar: "+e.Message;MessageBox.Show(this,status.Text,"Exportar inventário",MessageBoxButtons.OK,MessageBoxIcon.Warning);}};
         grid.Paint+=(_,e)=>{if(grid.Rows.Count==0)TextRenderer.DrawText(e.Graphics,scan is not null?"Buscando máquinas nas faixas selecionadas...":"Nenhuma máquina encontrada nesta consulta.\nConfira as faixas internas e clique em Localizar máquinas.",Font,new Rectangle(12,grid.ColumnHeadersHeight+18,Math.Max(0,grid.ClientSize.Width-24),70),Premium.Muted,TextFormatFlags.HorizontalCenter|TextFormatFlags.WordBreak);};
         Controls.Add(grid);Controls.Add(bar);Controls.Add(help);Controls.Add(status);
-        var deploymentTools=new FlowLayoutPanel{Dock=DockStyle.Top,AutoSize=true,Visible=false,WrapContents=true,AccessibleName="Instalação e permissões"};
+        var deploymentTools=new FlowLayoutPanel{Dock=DockStyle.Top,AutoSize=true,Visible=true,WrapContents=true,AccessibleName="Instalação e permissões"};
         foreach(var control in new Control[]{mode,select,install,preAuth,unAuth,updateNow})deploymentTools.Controls.Add(control);
         Controls.Add(deploymentTools);Controls.SetChildIndex(deploymentTools,1);
-        var settings=new Button{Text="Instalação e permissões ▾",AutoSize=true};
+        var settings=new Button{Text="Ocultar instalação ▴",AutoSize=true};
         settings.Click+=(_,_)=>{deploymentTools.Visible=!deploymentTools.Visible;settings.Text=deploymentTools.Visible?"Ocultar instalação ▴":"Instalação e permissões ▾";};bar.Controls.Add(settings);
         var guidance=new Button{Text="Como instalar",AutoSize=true};guidance.Click+=(_,_)=>MessageBox.Show(this,instructions,"Instalação de agentes",MessageBoxButtons.OK,MessageBoxIcon.Information);bar.Controls.Add(guidance);
         networks.Width=220;
@@ -114,6 +114,14 @@ sealed class DeploymentPanel:UserControl
         Enter+=(_,_)=>{if(IsHandleCreated)BeginInvoke(new Action(()=>{if(!IsDisposed)AutoScrollPosition=Point.Empty;}));};
         Enter+=async(_,_)=>{if(autoSearch&&!started){started=true;await Scan();}};
         Disposed+=(_,_)=>scan?.Cancel();
+    }
+    static string ManagementHint(NetworkHost host)
+    {
+        var methods=new List<string>();
+        if(host.Smb)methods.Add("SMB disponível (445); requer ADMIN$ e Agendador");
+        if(host.WinRmHttps)methods.Add("WinRM HTTPS (5986)");
+        if(host.WinRmKerberos)methods.Add("WinRM domínio (5985)");
+        return methods.Count==0?"Sem gerenciamento detectado; instalação local ou distribuição pela TI necessária":string.Join(" • ",methods);
     }
     void ExportCsv()
     {
@@ -142,9 +150,9 @@ sealed class DeploymentPanel:UserControl
             await NetworkInventory.Scan(ranges,host=>{
                 if(IsDisposed)return;
                 try{BeginInvoke(new Action(()=>{if(IsDisposed)return;var existing=grid.Rows.Cast<DataGridViewRow>().FirstOrDefault(r=>((NetworkHost)r.Tag!).Address==host.Address);
-                    if(existing is not null){existing.Tag=host;existing.Cells[5].Value=host.Host==host.Address?"Nome não identificado":host.Host;return;}
+                    if(existing is not null){existing.Tag=host;existing.Cells[3].Value=ManagementHint(host);existing.Cells[5].Value=host.Host==host.Address?"Nome não identificado":host.Host;return;}
                     int row=grid.Rows.Add(false,host.Address,host.Host,
-                    host.WinRmHttps?"WinRM HTTPS (5986)":host.WinRmKerberos?"WinRM domínio (5985)":host.Smb?"SMB (445); Agendador remoto necessário":"Respondeu; gerenciamento não detectado",
+                    ManagementHint(host),
                     host.AgentPort?"Porta 7443 aberta; confirme na lista de agentes":"Cliente não confirmado",host.Host==host.Address?"Nome não identificado":host.Host,"Descrição não disponível","Sistema não identificado");grid.Rows[row].Tag=host;grid.Rows[row].Visible=(host.Address+" "+host.Host).Contains(search.Text,StringComparison.CurrentCultureIgnoreCase);}));}catch(InvalidOperationException){}
             },progress,cancellation.Token);
             if(!IsDisposed)status.Text=$"Busca concluída: {grid.Rows.Count} máquina(s). Confira os nomes e selecione os destinos.";
