@@ -13,9 +13,14 @@ $ErrorActionPreference='Stop'
 $credential=$null
 $results=New-Object System.Collections.Generic.List[object]
 
-function Normalize-UserForNet([pscredential]$cred){
+function Normalize-UserForNet([pscredential]$cred,[string]$targetHost){
  $u=$cred.UserName
- if($u.StartsWith('.\\')){return $u.Substring(2)}
+ if($u.StartsWith('.\')){
+  $targetIp=$null
+  if([Net.IPAddress]::TryParse($targetHost,[ref]$targetIp)){return $u.Substring(2)}
+  $computer=($targetHost -split '\.')[0]
+  return $computer+'\'+$u.Substring(2)
+ }
  return $u
 }
 
@@ -34,7 +39,7 @@ try{
 
  $credential=Get-Credential -Message 'Conta administrativa local no alvo (ex.: .\administrador ou DOMINIO\usuario).'
  if($null -eq $credential){throw 'Autenticacao cancelada.'}
- $user=Normalize-UserForNet $credential
+ $user=$credential.UserName
  $password=Plain-Password $credential
 
  $index=0
@@ -42,7 +47,7 @@ try{
   $index++
   $address=[string]$target.address;$hostName=[string]$target.host
   Write-Progress -Activity 'Instalando Cliente SDE Suporte (SMB)' -Status "$index/$(@($request.targets).Count): $hostName" -PercentComplete (($index-1)*100/@($request.targets).Count)
-  $share=$null;$taskName="SDE-Install-"+[guid]::NewGuid().ToString('N').Substring(0,12)
+  $share=$null;$remoteDir=$null;$hostArg=$null;$taskName="SDE-Install-"+[guid]::NewGuid().ToString('N').Substring(0,12)
   try{
    # Valida IP e nome
    $ip=$null
@@ -51,6 +56,8 @@ try{
    if(-not ($b[0] -eq 10 -or ($b[0] -eq 172 -and $b[1] -ge 16 -and $b[1] -le 31) -or ($b[0] -eq 192 -and $b[1] -eq 168))){throw 'Use somente enderecos privados.'}
    # Usa IP ou nome para o alvo (schtasks aceita ambos)
    $hostArg=if([string]::IsNullOrWhiteSpace($hostName)){$address}else{$hostName}
+
+   $user=Normalize-UserForNet $credential $hostArg
 
    # 1) Monta ADMIN$
    $share="\\$hostArg\ADMIN$"
@@ -94,7 +101,10 @@ echo %ERRORLEVEL% > "$localResult"
     $log=''
     $logRemote=Join-Path $remoteDir 'install.log'
     if(Test-Path -LiteralPath $logRemote){$log=(Get-Content -LiteralPath $logRemote -Raw -ErrorAction SilentlyContinue)}
-    throw ("Instalador retornou $exit. "+($log -replace '\s+',' ').Substring(0,[Math]::Min(200,$log.Length)))
+    # Normaliza para uma unica string antes de limitar a mensagem.
+    [string]$summary=(@($log) -join [Environment]::NewLine) -replace '\s+',' '
+    if($summary.Length -gt 200){$summary=$summary.Substring(0,200)}
+    throw ("Instalador retornou $exit. "+$summary)
    }
    $results.Add([pscustomobject]@{host=$hostName;address=$address;state='InstalledWaitingForLogon';detail='Instalado via SMB. Agente ativo no proximo login do funcionario.'})
    Write-Host "$hostArg : instalado"
