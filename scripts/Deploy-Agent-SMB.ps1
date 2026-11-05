@@ -47,7 +47,7 @@ try{
   $index++
   $address=[string]$target.address;$hostName=[string]$target.host
   Write-Progress -Activity 'Instalando Cliente SDE Suporte (SMB)' -Status "$index/$(@($request.targets).Count): $hostName" -PercentComplete (($index-1)*100/@($request.targets).Count)
-  $share=$null;$remoteDir=$null;$hostArg=$null;$taskName="SDE-Install-"+[guid]::NewGuid().ToString('N').Substring(0,12)
+  $share=$null;$remoteDir=$null;$hostArg=$null;$completed=$false;$taskName="SDE-Install-"+[guid]::NewGuid().ToString('N').Substring(0,12)
   try{
    # Valida IP e nome
    $ip=$null
@@ -76,7 +76,13 @@ try{
    $runnerPath=Join-Path $remoteDir 'run.cmd'
    @"
 @echo off
-"$localInstaller" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART > "$localLog" 2>&1
+tasklist /FI "IMAGENAME eq SDE-Suporte-Cliente.exe" /NH | findstr /I /L "SDE-Suporte-Cliente.exe" >nul
+if not errorlevel 1 (
+ echo Cliente em execucao. Feche o Cliente quando nao houver atendimento e tente novamente. > "$localLog"
+ echo 20 > "$localResult"
+ exit /b 20
+)
+"$localInstaller" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="$localLog" > "$localDir\console.log" 2>&1
 echo %ERRORLEVEL% > "$localResult"
 "@ | Set-Content -LiteralPath $runnerPath -Encoding Ascii
 
@@ -88,7 +94,7 @@ echo %ERRORLEVEL% > "$localResult"
 
    # 4) Aguarda terminar (polling pelo arquivo result.txt via SMB)
    $resultRemote=Join-Path $remoteDir 'result.txt'
-   $deadline=(Get-Date).AddMinutes(5);$exit=$null
+   $deadline=(Get-Date).AddMinutes(10);$exit=$null
    while((Get-Date) -lt $deadline){
     Start-Sleep -Seconds 3
     if(Test-Path -LiteralPath $resultRemote){
@@ -96,16 +102,17 @@ echo %ERRORLEVEL% > "$localResult"
      if($raw -and $raw.Trim() -match '^-?\d+$'){$exit=[int]$raw.Trim();break}
     }
    }
-   if($null -eq $exit){throw 'Instalador nao terminou em 5 minutos.'}
+   if($null -eq $exit){throw 'Instalador nao terminou em 10 minutos. Consulte os arquivos preservados.'}
    if($exit -ne 0){
     $log=''
     $logRemote=Join-Path $remoteDir 'install.log'
-    if(Test-Path -LiteralPath $logRemote){$log=(Get-Content -LiteralPath $logRemote -Raw -ErrorAction SilentlyContinue)}
+    if(Test-Path -LiteralPath $logRemote){$log=(Get-Content -LiteralPath $logRemote -Tail 20 -ErrorAction SilentlyContinue)}
     # Normaliza para uma unica string antes de limitar a mensagem.
     [string]$summary=(@($log) -join [Environment]::NewLine) -replace '\s+',' '
-    if($summary.Length -gt 200){$summary=$summary.Substring(0,200)}
-    throw ("Instalador retornou $exit. "+$summary)
+    if($summary.Length -gt 1600){$summary=$summary.Substring($summary.Length-1600)}
+    throw ("Instalador retornou $exit. "+$summary+" Log: "+$logRemote)
    }
+   $completed=$true
    $results.Add([pscustomobject]@{host=$hostName;address=$address;state='InstalledWaitingForLogon';detail='Instalado via SMB. Agente ativo no proximo login do funcionario.'})
    Write-Host "$hostArg : instalado"
   }catch{
@@ -117,7 +124,7 @@ echo %ERRORLEVEL% > "$localResult"
   }finally{
    if($share){
     try{& schtasks.exe /Delete /S $hostArg /U $user /P $password /TN $taskName /F 2>&1 | Out-Null}catch{}
-    try{if($remoteDir -and (Test-Path -LiteralPath $remoteDir)){Remove-Item -LiteralPath $remoteDir -Recurse -Force -ErrorAction SilentlyContinue}}catch{}
+    try{if($completed -and $remoteDir -and (Test-Path -LiteralPath $remoteDir)){Remove-Item -LiteralPath $remoteDir -Recurse -Force -ErrorAction SilentlyContinue}}catch{}
     try{& net.exe use $share /delete /y 2>&1 | Out-Null}catch{}
    }
    $json=ConvertTo-Json -InputObject @($results.ToArray()) -Depth 6

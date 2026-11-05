@@ -66,7 +66,7 @@ public static class NetworkScanner
         // Bootstrap carries public enrollment metadata only, never credentials or session
         // commands. A device is returned only after BOTH the team signature and the pin
         // of this TLS connection have been verified; normal requests use strict pinning.
-        using var http=new HttpClient(handler){Timeout=TimeSpan.FromMilliseconds(1200),MaxResponseContentBufferSize=50000};
+        using var http=new HttpClient(handler){Timeout=TimeSpan.FromMilliseconds(2500),MaxResponseContentBufferSize=50000};
         try
         {
             using var response=await http.GetAsync($"https://{address}:{port}/discover",cancellation);
@@ -88,6 +88,7 @@ public static class NetworkScanner
         progress?.Report(new(0,addresses.Length,0));
         await Parallel.ForEachAsync(addresses,new ParallelOptions{MaxDegreeOfParallelism=32,CancellationToken=cancellation},async(address,token)=>{
             var device=await Discover(address,port,roots,technicianId,token);
+            if(device is null)device=await Discover(address,port,roots,technicianId,token);
             if(device is not null){Interlocked.Increment(ref discovered);found(device);}
             int count=Interlocked.Increment(ref completed);if(count%16==0||count==addresses.Length)progress?.Report(new(count,addresses.Length,Volatile.Read(ref discovered)));
         });
