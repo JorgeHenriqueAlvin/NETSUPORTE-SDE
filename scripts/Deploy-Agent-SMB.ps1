@@ -13,9 +13,14 @@ $ErrorActionPreference='Stop'
 $credential=$null
 $results=New-Object System.Collections.Generic.List[object]
 
-function Normalize-UserForNet([pscredential]$cred){
+function Normalize-UserForNet([pscredential]$cred,[string]$computer){
  $u=$cred.UserName
- if($u.StartsWith('.\\')){return $u.Substring(2)}
+ if($u.StartsWith('.\')){
+  $parsed=$null
+  # With an IP target, let Windows resolve the unqualified local account.
+  if([Net.IPAddress]::TryParse($computer,[ref]$parsed)){return $u.Substring(2)}
+  return ($computer.Split('.')[0])+'\'+$u.Substring(2)
+ }
  return $u
 }
 
@@ -34,7 +39,6 @@ try{
 
  $credential=Get-Credential -Message 'Conta administrativa local no alvo (ex.: .\administrador ou DOMINIO\usuario).'
  if($null -eq $credential){throw 'Autenticacao cancelada.'}
- $user=Normalize-UserForNet $credential
  $password=Plain-Password $credential
 
  $index=0
@@ -42,7 +46,7 @@ try{
   $index++
   $address=[string]$target.address;$hostName=[string]$target.host
   Write-Progress -Activity 'Instalando Cliente SDE Suporte (SMB)' -Status "$index/$(@($request.targets).Count): $hostName" -PercentComplete (($index-1)*100/@($request.targets).Count)
-  $share=$null;$taskName="SDE-Install-"+[guid]::NewGuid().ToString('N').Substring(0,12)
+  $share=$null;$remoteDir=$null;$user=$null;$installed=$false;$taskName="SDE-Install-"+[guid]::NewGuid().ToString('N').Substring(0,12)
   try{
    # Valida IP e nome
    $ip=$null
@@ -52,16 +56,19 @@ try{
    # Usa IP ou nome para o alvo (schtasks aceita ambos)
    $hostArg=if([string]::IsNullOrWhiteSpace($hostName)){$address}else{$hostName}
 
+   $user=Normalize-UserForNet $credential $hostArg
+
    # 1) Monta ADMIN$
    $share="\\$hostArg\ADMIN$"
-   & net.exe use $share $password /user:$user 2>&1 | Out-Null
-   if($LASTEXITCODE -ne 0){throw "Nao foi possivel acessar $share. Verifique a conta administradora, firewall (porta 445) e Compartilhamento de Arquivos."}
+   $connectionOutput=& net.exe use $share $password /user:$user 2>&1
+   if($LASTEXITCODE -ne 0){throw "Nao foi possivel acessar $share. Verifique a conta administradora, firewall (porta 445) e Compartilhamento de Arquivos. Windows: $($connectionOutput -join ' ')"}
 
    # 2) Copia instalador e script de execução para C:\Windows\Temp
    $remoteDir="$share\Temp\SdeDeploy-"+[guid]::NewGuid().ToString('N').Substring(0,8)
    New-Item -ItemType Directory -Path $remoteDir -Force | Out-Null
    $remoteInstaller=Join-Path $remoteDir 'SDE-Suporte-Cliente-Instalar.exe'
    Copy-Item -LiteralPath $installer -Destination $remoteInstaller -Force
+   if((Get-FileHash -LiteralPath $remoteInstaller -Algorithm SHA256).Hash -ine $expected){throw 'Integridade da copia remota invalida.'}
    $localDir='C:\Windows\Temp\'+(Split-Path $remoteDir -Leaf)
    $localInstaller=Join-Path $localDir 'SDE-Suporte-Cliente-Instalar.exe'
    $localLog=Join-Path $localDir 'install.log'
@@ -69,7 +76,7 @@ try{
    $runnerPath=Join-Path $remoteDir 'run.cmd'
    @"
 @echo off
-"$localInstaller" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART > "$localLog" 2>&1
+"$localInstaller" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="$localLog"
 echo %ERRORLEVEL% > "$localResult"
 "@ | Set-Content -LiteralPath $runnerPath -Encoding Ascii
 
@@ -94,20 +101,24 @@ echo %ERRORLEVEL% > "$localResult"
     $log=''
     $logRemote=Join-Path $remoteDir 'install.log'
     if(Test-Path -LiteralPath $logRemote){$log=(Get-Content -LiteralPath $logRemote -Raw -ErrorAction SilentlyContinue)}
-    throw ("Instalador retornou $exit. "+($log -replace '\s+',' ').Substring(0,[Math]::Min(200,$log.Length)))
+    $summary=$log -replace '\s+',' '
+    throw ("Instalador retornou $exit. "+$summary.Substring(0,[Math]::Min(200,$summary.Length)))
    }
+   $installed=$true
    $results.Add([pscustomobject]@{host=$hostName;address=$address;state='InstalledWaitingForLogon';detail='Instalado via SMB. Agente ativo no proximo login do funcionario.'})
    Write-Host "$hostArg : instalado"
   }catch{
    $detail=$_.Exception.Message
+   if($remoteDir){$detail+=" Diagnostico preservado em $remoteDir (se a copia iniciou)."}
    if($credential -and $credential.UserName){$detail=$detail.Replace($credential.UserName,'[conta administrativa]')}
+   if($user){$detail=$detail.Replace($user,'[conta administrativa]')}
    if($password){$detail=$detail.Replace($password,'[senha]')}
    $results.Add([pscustomobject]@{host=$hostName;address=$address;state='Failed';detail=$detail})
    Write-Host "$hostName : falhou. $detail"
   }finally{
    if($share){
     try{& schtasks.exe /Delete /S $hostArg /U $user /P $password /TN $taskName /F 2>&1 | Out-Null}catch{}
-    try{if($remoteDir -and (Test-Path -LiteralPath $remoteDir)){Remove-Item -LiteralPath $remoteDir -Recurse -Force -ErrorAction SilentlyContinue}}catch{}
+    try{if($installed -and $remoteDir -and (Test-Path -LiteralPath $remoteDir)){Remove-Item -LiteralPath $remoteDir -Recurse -Force -ErrorAction SilentlyContinue}}catch{}
     try{& net.exe use $share /delete /y 2>&1 | Out-Null}catch{}
    }
    $json=ConvertTo-Json -InputObject @($results.ToArray()) -Depth 6

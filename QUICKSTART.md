@@ -1,3 +1,17 @@
+## Instalação pela rede em três passos
+
+No Técnico atualizado, abra **Implantar Clientes**:
+
+1. Clique em **Localizar máquinas**. A faixa da rede local já vem preenchida; outras VLANs podem ser informadas no campo de faixas.
+2. Clique em **Selecionar compatíveis** e confira as máquinas marcadas. O método padrão é **SMB + Agendador (sem WinRM)**; os controles ficam visíveis.
+3. Clique em **Instalar Cliente nas selecionadas**, confirme os destinos e informe a conta administrativa na janela do PowerShell.
+
+Use `DOMINIO\usuario` para uma conta de domínio ou `NOME-DO-PC\usuario` para uma conta local. O formato `.\usuario` é associado ao destino de cada instalação. Não envie senhas pelo chat.
+
+A coluna de gerenciamento mostra todos os métodos detectados. Porta 445 aberta indica disponibilidade SMB, mas a instalação também exige acesso administrativo a ADMIN$ e Agendador/RPC remoto. Se tudo estiver bloqueado, distribua o Cliente por GPO/ferramenta corporativa ou execute o instalador localmente uma vez. O aplicativo não altera essas políticas automaticamente.
+
+Falhas mantêm o diagnóstico na pasta remota indicada no resultado. Instalações silenciosas ficam disponíveis após o próximo login do funcionário. Este fluxo ocorre no computador Windows da TI; a varredura da intranet não pode ser executada daqui.
+
 # Começar com a versão 0.12.14
 
 1. Atualize Técnico e Clientes Windows uma primeira vez; preserve as configurações existentes.
