@@ -125,56 +125,73 @@ static class DesktopService
     static readonly Dictionary<int,Process> workers=[];
     static readonly object gate=new();
     static readonly SemaphoreSlim slots=new(8,8);
-    static IntPtr statusHandle;
-    static readonly ServiceMain main=Run;
-    static readonly ServiceHandler handler=Control;
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] delegate void ServiceMain(int count,IntPtr args);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] delegate void ServiceHandler(uint control);
-    [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)] struct ServiceEntry { public string? Name;public ServiceMain? Main; }
-    [StructLayout(LayoutKind.Sequential)] struct ServiceStatus { public uint Type,State,Accepted,Win32Exit,SpecificExit,Checkpoint,WaitHint; }
-    [DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern bool StartServiceCtrlDispatcher([In] ServiceEntry[] table);
-    [DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern IntPtr RegisterServiceCtrlHandler(string name,ServiceHandler handler);
-    [DllImport("advapi32.dll",SetLastError=true)] static extern bool SetServiceStatus(IntPtr handle,ref ServiceStatus status);
-    static void Status(uint state,uint error=0)
-    {
-        var status=new ServiceStatus{Type=0x10,State=state,Accepted=state==4?5u:0u,Win32Exit=error,WaitHint=state is 2 or 3?10000u:0u};
-        SetServiceStatus(statusHandle,ref status);
-    }
     public static void Start()
     {
         if(!WindowsIdentity.GetCurrent().IsSystem||!DesktopWire.TrustedServiceLocation)throw new UnauthorizedAccessException("O auxiliar requer o serviço instalado em Program Files.");
-        if(!StartServiceCtrlDispatcher([new(){Name=DesktopWire.ServiceName,Main=main},new()]))throw new Win32Exception();
+#if DESKTOP_SERVICE
+        System.ServiceProcess.ServiceBase.Run(new BrokerService());
+#else
+        throw new InvalidOperationException("Execute o auxiliar instalado como serviço.");
+#endif
     }
-    static void Control(uint control)
+#if DESKTOP_SERVICE
+    // Let the Windows service framework own SCM status transitions and control
+    // acknowledgement; do not race manual STOPPED reports against the handler.
+    sealed class BrokerService:System.ServiceProcess.ServiceBase
     {
-        if(control is not (1 or 5))return;
-        Status(3);stop.Cancel();
-        lock(gate)foreach(var process in workers.Values)try{if(!process.HasExited)process.Kill();}catch{}
+        Task? listening;
+        public BrokerService(){ServiceName=DesktopWire.ServiceName;CanStop=true;CanShutdown=true;AutoLog=false;}
+        protected override void OnStart(string[] args)
+        {
+            try
+            {
+                var verifier=DesktopWire.Verifier();
+                var first=DesktopWire.Server(DesktopWire.BrokerPipe);
+                listening=Task.Run(()=>Listen(verifier,first));
+                Record("service_started");
+            }
+            catch(Exception e){Failure("service_start_failed",e);throw;}
+        }
+        protected override void OnStop()
+        {
+            stop.Cancel();
+            lock(gate)foreach(var child in workers.Values)try{if(!child.HasExited)child.Kill();}catch{}
+            try{listening?.Wait(TimeSpan.FromSeconds(5));}catch(AggregateException e){Failure("service_stop_failed",e);}
+            Record("service_stopped");
+        }
+        protected override void OnShutdown()=>OnStop();
+    }
+#endif
+    static void Record(string action)
+    {
+        try{OperationalData.Write(Path.Combine(AppContext.BaseDirectory,"desktop-service.jsonl"),new{at=DateTimeOffset.UtcNow,action});}catch{}
     }
     internal static void Failure(string action,Exception e)
     {
         if(!DesktopWire.TrustedServiceLocation||!WindowsIdentity.GetCurrent().IsSystem)return;
         try{OperationalData.Write(Path.Combine(AppContext.BaseDirectory,"desktop-service.jsonl"),new{at=DateTimeOffset.UtcNow,action,error=e.GetType().Name,code=e is Win32Exception win?win.NativeErrorCode:0,detail=e.Message});}catch{}
     }
-    static void Run(int count,IntPtr args)
+    static void Listen(RequestVerifier verifier,NamedPipeServerStream first)
     {
-        statusHandle=RegisterServiceCtrlHandler(DesktopWire.ServiceName,handler);if(statusHandle==IntPtr.Zero)return;
-        Status(2);uint error=0;
+        NamedPipeServerStream? pending=first;
         try
         {
-            var verifier=DesktopWire.Verifier();Status(4);
             while(!stop.IsCancellationRequested)
             {
                 slots.Wait(stop.Token);
-                var pipe=DesktopWire.Server(DesktopWire.BrokerPipe);
+                var pipe=pending??DesktopWire.Server(DesktopWire.BrokerPipe);pending=null;
                 try{pipe.WaitForConnectionAsync(stop.Token).GetAwaiter().GetResult();}
                 catch{pipe.Dispose();slots.Release();throw;}
                 _=Task.Run(()=>{try{Accept(pipe,verifier);}finally{slots.Release();}});
             }
         }
         catch(OperationCanceledException)when(stop.IsCancellationRequested){}
-        catch(Exception e){Failure("service_failed",e);error=1;}
-        finally{lock(gate)foreach(var child in workers.Values)try{if(!child.HasExited)child.Kill();}catch{}Status(1,error);}
+        catch(Exception e){Failure("service_failed",e);stop.Cancel();}
+        finally
+        {
+            pending?.Dispose();
+            lock(gate)foreach(var child in workers.Values)try{if(!child.HasExited)child.Kill();}catch{}
+        }
     }
     static void Accept(NamedPipeServerStream pipe,RequestVerifier verifier)
     {

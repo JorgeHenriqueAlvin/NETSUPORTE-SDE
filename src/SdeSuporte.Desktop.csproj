@@ -11,6 +11,6 @@
   <DefineConstants>$(DefineConstants);AGENT_ONLY;DESKTOP_SERVICE</DefineConstants>
   <AssemblyName>SDE-Suporte-Desktop</AssemblyName>
  </PropertyGroup>
+ <ItemGroup><PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" /></ItemGroup>
  <ItemGroup><EmbeddedResource Include="TeamDeployment.json" LogicalName="SdeSuporte.TeamDeployment" /></ItemGroup>
 </Project>
-

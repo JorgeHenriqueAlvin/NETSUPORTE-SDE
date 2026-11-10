@@ -18,8 +18,13 @@ $expected='"'+$exe+'" --desktop-service'
 $existing=Get-CimInstance Win32_Service -Filter "Name='$name'"
 if($existing -and $existing.PathName -ine $expected){throw 'O nome do servico de desktop pertence a outra instalacao.'}
 if($existing) {
- Stop-Service -Name $name -Force -ErrorAction Stop
- (Get-Service -Name $name).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(15))
+ $controller=Get-Service -Name $name
+ try {
+  $controller.Refresh()
+  if($controller.Status -eq 'StartPending'){$controller.WaitForStatus('Running',[TimeSpan]::FromSeconds(15));$controller.Refresh()}
+  if($controller.Status -ne 'Stopped' -and $controller.Status -ne 'StopPending'){$controller.Stop()}
+  $controller.WaitForStatus('Stopped',[TimeSpan]::FromSeconds(15))
+ } finally {$controller.Dispose()}
 }
 if($Remove) {
  if($existing){
@@ -38,5 +43,6 @@ if(-not $existing) {
 & sc.exe description $name 'Auxiliar local para a tela UAC durante atendimento SDE autorizado. Nao altera a politica UAC.' | Out-Null
 if($LASTEXITCODE -ne 0){throw 'Nao foi possivel descrever o servico de desktop.'}
 Start-Service -Name $name
-(Get-Service -Name $name).WaitForStatus('Running',[TimeSpan]::FromSeconds(15))
+$controller=Get-Service -Name $name
+try{$controller.WaitForStatus('Running',[TimeSpan]::FromSeconds(15))}finally{$controller.Dispose()}
 Write-Host 'Servico de desktop administrativo instalado e iniciado.'

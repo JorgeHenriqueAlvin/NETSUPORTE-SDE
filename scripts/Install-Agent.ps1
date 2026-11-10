@@ -10,7 +10,8 @@ param(
  [string]$InstallDirectory = "$env:ProgramFiles\SDE-Suporte\Agent",
  [string]$BinaryDirectory = '',
  [string]$ConnectionHost = '',
- [switch]$NoStartup
+ [switch]$NoStartup,
+ [switch]$DeferDesktopService
 )
 $ErrorActionPreference='Stop'
 if($PSVersionTable.PSEdition -eq 'Desktop') {
@@ -76,6 +77,6 @@ if (-not $NoStartup) {
  $startup=(Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name SdeSuporte).SdeSuporte
  if($startup -ne "`"$exe`""){throw 'Nao foi possivel ativar o inicio automatico do Cliente no Windows.'}
 }
-if(Test-Path -LiteralPath $desktopService){& $desktopService -InstallDirectory $InstallDirectory}
+if(-not $DeferDesktopService -and (Test-Path -LiteralPath $desktopService)){& $desktopService -InstallDirectory $InstallDirectory}
 $sha.Dispose()
 Write-Host "Agente configurado. Arquivo do computador: $ExportPath"
