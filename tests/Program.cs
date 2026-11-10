@@ -538,7 +538,7 @@ static class Tests
             var (target,field)=await targetReady.Task.WaitAsync(TimeSpan.FromSeconds(5));
             try
             {
-                target.Invoke(()=>{target.Activate();field.Focus();SetForegroundWindow(target.Handle);});await Task.Delay(300);
+                await FocusTarget(target,field);
                 using var typed=await client.Request(HttpMethod.Post,"/input",new InputCommand("text",Text:"SDE-SYSTEM-123"));
                 await Task.Delay(200);
                 Check((string)field.Invoke(()=>field.Text)=="SDE-SYSTEM-123","texto assinado do auxiliar SYSTEM chega ao aplicativo de teste");
@@ -620,7 +620,7 @@ static class Tests
                 using var removed=await client.Request(HttpMethod.Get,"/frame?monitor=monitor-removido");
                 Check(removed.Headers.Contains("X-SDE-Monitors"),"monitor removido retorna automaticamente ao principal");
             }
-            form.Invoke(()=>{form.Activate();textbox.Focus();SetForegroundWindow(form.Handle);});await Task.Delay(500);
+            await FocusTarget(form,textbox);
             IntPtr handle=(IntPtr)form.Invoke(()=>form.Handle);
             Check(GetForegroundWindow()==handle,"alvo exclusivo do teste em primeiro plano");
             using(var command=await client.Request(HttpMethod.Post,"/input",new InputCommand("text",Text:"SDE-TEST-123"))){}
@@ -645,6 +645,28 @@ static class Tests
         }
         finally{try{await client.Stop();}catch{}form.Invoke(()=>form.Close());thread.Join(5000);}
     }
+    static async Task FocusTarget(Form form,TextBox field)
+    {
+        var handle=(IntPtr)form.Invoke(()=>form.Handle);
+        for(int attempt=0;attempt<10;attempt++)
+        {
+            form.Invoke(()=>{
+                // Earlier input tests may leave the foreground lock associated
+                // with a helper that already exited. Attach only the test UI's
+                // input queue while activating the explicit test target.
+                uint current=GetCurrentThreadId(),foreground=GetWindowThreadProcessId(GetForegroundWindow(),out _);
+                bool attached=foreground!=0&&foreground!=current&&AttachThreadInput(current,foreground,true);
+                try{form.Activate();field.Focus();SetForegroundWindow(handle);}
+                finally{if(attached)AttachThreadInput(current,foreground,false);}
+            });
+            await Task.Delay(100);
+            if(GetForegroundWindow()==handle)return;
+        }
+        Check(false,"janela de teste recebe foco antes da digitacao");
+    }
+    [DllImport("kernel32.dll")]static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")]static extern uint GetWindowThreadProcessId(IntPtr window,out uint process);
+    [DllImport("user32.dll")]static extern bool AttachThreadInput(uint first,uint second,bool attach);
     delegate bool WindowCallback(IntPtr window,IntPtr parameter);
     [DllImport("user32.dll",CharSet=CharSet.Unicode)]static extern IntPtr FindWindow(string? className,string? windowName);
     [DllImport("user32.dll")]static extern bool EnumChildWindows(IntPtr window,WindowCallback callback,IntPtr parameter);
