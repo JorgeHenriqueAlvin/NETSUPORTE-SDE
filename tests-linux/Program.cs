@@ -19,7 +19,7 @@ tech.Credential=TeamAccess.Issue(issuer,tech.Public);
 var profile=Enrollment.Create(issuer,[],"Test",true);
 using var key=RSA.Create(2048);
 var request=new CertificateRequest("CN=Test",key,HashAlgorithmName.SHA256,RSASignaturePadding.Pkcs1);
-using var cert=request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1),DateTimeOffset.UtcNow.AddDays(1));
+using var cert=request.CreateSelfSigned(DateTimeOffset.UtcNow.AddYears(-2),DateTimeOffset.UtcNow.AddYears(-1));
 File.WriteAllBytes(Path.Combine(state,"agent.pfx"),cert.Export(X509ContentType.Pfx));
 var device=new Device(Guid.NewGuid().ToString(),"Test Pi","Test","127.0.0.1",17443,Convert.ToHexString(SHA256.HashData(cert.RawData)));
 // Match host selection so startup does not re-enroll using the production delegation.
@@ -51,6 +51,21 @@ try{
         try{using var info=await client.Request(HttpMethod.Get,"/info");ready=true;break;}catch(Exception e){lastError=e;if(agent.HasExited)throw new Exception("Agent stopped: "+await stderr);await Task.Delay(250);}
     }
     if(!ready)throw new Exception("Server unavailable.",lastError);
+    // Simulate a console whose time anchor differs by a year: re-bootstrap must
+    // restore the agent clock, while stale signed requests must still be denied.
+    var flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+    var secondsField=typeof(RemoteClient).GetField("agentSeconds",flags)!;
+    var readyField=typeof(RemoteClient).GetField("clockReady",flags)!;
+    secondsField.SetValue(client,DateTimeOffset.UtcNow.AddYears(-1).ToUnixTimeSeconds());
+    try{using var stale=await client.Request(HttpMethod.Get,"/info");throw new Exception("Stale signature accepted.");}
+    catch(HttpRequestException e)when(e.StatusCode==System.Net.HttpStatusCode.Forbidden){}
+    readyField.SetValue(client,false);
+    using(var synchronized=await client.Request(HttpMethod.Get,"/info")){}
+    using(var wrongPin=new RemoteClient(device with{Host="127.0.0.1",CertificateSha256=new string('0',64)},tech))
+    {
+        try{using var invalid=await wrongPin.Request(HttpMethod.Get,"/info");throw new Exception("Wrong TLS pin accepted.");}
+        catch(HttpRequestException e)when(e.StatusCode is null){}
+    }
     using var stranger=new TechnicianIdentity(ECDsa.Create(ECCurve.NamedCurves.nistP256),"Unknown");
     using var forbidden=new RemoteClient(device with {Host="127.0.0.1"},stranger);
     using(var inventory=await client.Request(HttpMethod.Get,"/inventory"))

@@ -116,6 +116,9 @@ public sealed class RemoteClient : IDisposable
     readonly HttpClient http;
     readonly TechnicianIdentity identity;
     readonly string deviceId;
+    readonly SemaphoreSlim clockGate=new(1,1);
+    long agentSeconds,clockStarted;
+    bool clockReady;
     public string DeviceId=>deviceId;
     public RemoteSession? Session {get;private set;}
     public RemoteClient(Device device,TechnicianIdentity identity,TimeSpan? timeout=null)
@@ -124,7 +127,6 @@ public sealed class RemoteClient : IDisposable
         http=new(new HttpClientHandler {
             UseProxy=false,AllowAutoRedirect=false,
             ServerCertificateCustomValidationCallback=(_,cert,_,_) => cert is not null
-                && DateTime.UtcNow>=cert.NotBefore.ToUniversalTime() && DateTime.UtcNow<=cert.NotAfter.ToUniversalTime()
                 && string.Equals(Convert.ToHexString(SHA256.HashData(cert.RawData)),device.CertificateSha256,StringComparison.OrdinalIgnoreCase)
         }) { BaseAddress=new Uri($"https://{device.Host}:{device.Port}"),Timeout=timeout??TimeSpan.FromSeconds(40),MaxResponseContentBufferSize=32*1024*1024 };
     }
@@ -139,10 +141,31 @@ public sealed class RemoteClient : IDisposable
             catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.TooManyRequests&&attempt<3){await Task.Delay(150,cancellation);}
         }
     }
+    // Read only public metadata over the already pinned TLS connection. Keep the
+    // agent's own clock domain so signed freshness/replay checks stay enabled.
+    async Task SynchronizeClock(CancellationToken cancellation)
+    {
+        await clockGate.WaitAsync(cancellation);
+        try
+        {
+            if(clockReady)return;
+            using var limit=CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+            limit.CancelAfter(TimeSpan.FromSeconds(5));
+            using var response=await http.GetAsync("/discover",HttpCompletionOption.ResponseHeadersRead,limit.Token);
+            response.EnsureSuccessStatusCode();
+            DateTimeOffset? time=response.Headers.Date;
+            if(response.Headers.TryGetValues("X-SDE-Time",out var values)
+                &&long.TryParse(values.FirstOrDefault(),out var seconds))time=DateTimeOffset.FromUnixTimeSeconds(seconds);
+            if(time is null)throw new HttpRequestException("O Cliente não informou seu horário. Atualize o Cliente SDE.");
+            agentSeconds=time.Value.ToUnixTimeSeconds();clockStarted=System.Diagnostics.Stopwatch.GetTimestamp();clockReady=true;
+        }
+        finally{clockGate.Release();}
+    }
     async Task<HttpResponseMessage> RequestOnce(HttpMethod method,string path,object? value,CancellationToken cancellation)
     {
+        await SynchronizeClock(cancellation);
         byte[] body=value is null ? [] : JsonSerializer.SerializeToUtf8Bytes(value,Json.Options);
-        string time=DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
+        string time=(agentSeconds+(long)System.Diagnostics.Stopwatch.GetElapsedTime(clockStarted).TotalSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture);
         string nonce=Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
         string session=Session?.Id??"";
         using var request=new HttpRequestMessage(method,path);

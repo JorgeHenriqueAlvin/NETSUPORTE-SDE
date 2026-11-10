@@ -109,7 +109,7 @@ app.Run(async context=>{
     try{
         var req=context.Request;string path=req.Path.Value??"/";
         async Task Reply(int status,object payload){context.Response.StatusCode=status;await context.Response.WriteAsJsonAsync(payload,Json.Options);}
-        if(req.Method=="GET"&&path=="/discover"&&!req.QueryString.HasValue){await Reply(200,new DiscoveryMessage("SDE-DISCOVERY-1",config.Enrollment!));return;}
+        if(req.Method=="GET"&&path=="/discover"&&!req.QueryString.HasValue){context.Response.Headers["X-SDE-Time"]=DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);await Reply(200,new DiscoveryMessage("SDE-DISCOVERY-1",config.Enrollment!));return;}
         int limit=path=="/announcement"?4*1024*1024:path=="/chat"?16384:8192;
         if(req.ContentLength is null && (req.Method=="POST"||req.Headers.ContainsKey("Transfer-Encoding")) || req.ContentLength>limit){await Reply(413,new{error="Tamanho inválido."});return;}
         byte[] body=new byte[(int)(req.ContentLength??0)];

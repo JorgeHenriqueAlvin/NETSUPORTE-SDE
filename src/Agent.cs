@@ -131,7 +131,7 @@ sealed class Agent:Form
             // Public, signed enrollment metadata only. The scanner checks the trusted
             // team signature and binds the advertised pin to the actual TLS certificate.
             if(c.Request.HttpMethod=="GET"&&c.Request.RawUrl=="/discover"&&config.Enrollment is not null)
-            {await Reply(c.Response,200,new DiscoveryMessage("SDE-DISCOVERY-1",config.Enrollment));return;}
+            {c.Response.Headers["X-SDE-Time"]=DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);await Reply(c.Response,200,new DiscoveryMessage("SDE-DISCOVERY-1",config.Enrollment));return;}
             int bodyLimit=c.Request.Url!.AbsolutePath=="/announcement"?4*1024*1024:c.Request.Url.AbsolutePath=="/chat"?16384:8192;
             if((c.Request.HasEntityBody && c.Request.ContentLength64<0) || c.Request.ContentLength64>bodyLimit){await Reply(c.Response,413,new{error="Requisição grande ou sem tamanho."});return;}
             byte[] body=new byte[(int)Math.Max(0,c.Request.ContentLength64)];
