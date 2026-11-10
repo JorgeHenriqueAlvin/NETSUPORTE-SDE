@@ -529,6 +529,21 @@ static class Tests
             using(var frame=await client.Request(HttpMethod.Get,"/frame?monitor=primary"))
             {var image=await frame.Content.ReadAsByteArrayAsync();Check(image.Length>1000&&image[0]==0xff&&frame.Headers.Contains("X-SDE-Monitors"),"auxiliar produz imagem real e coordenadas de monitor");}
             using(var command=await client.Request(HttpMethod.Post,"/input",new InputCommand("keyUp",Key:16))){}
+            var targetReady=new TaskCompletionSource<(Form,TextBox)>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var targetThread=new Thread(()=>{
+                var form=new Form{Text="SDE - entrada pelo auxiliar",Width=500,Height=200,TopMost=true};
+                var field=new TextBox{Dock=DockStyle.Fill};form.Controls.Add(field);
+                form.Shown+=(_,_)=>targetReady.TrySetResult((form,field));Application.Run(form);
+            });targetThread.SetApartmentState(ApartmentState.STA);targetThread.Start();
+            var (target,field)=await targetReady.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            try
+            {
+                target.Invoke(()=>{target.Activate();field.Focus();SetForegroundWindow(target.Handle);});await Task.Delay(300);
+                using var typed=await client.Request(HttpMethod.Post,"/input",new InputCommand("text",Text:"SDE-SYSTEM-123"));
+                await Task.Delay(200);
+                Check((string)field.Invoke(()=>field.Text)=="SDE-SYSTEM-123","texto assinado do auxiliar SYSTEM chega ao aplicativo de teste");
+            }
+            finally{target.Invoke(()=>target.Close());targetThread.Join(3000);}
             try{using var stale=await client.Request(HttpMethod.Post,"/input",new InputCommand("move",Layout:"antigo"));throw new Exception("layout antigo aceito pelo auxiliar");}
             catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.Conflict){Console.WriteLine("OK: auxiliar rejeita entrada de monitor antigo");}
             using(var chat=await client.Request(HttpMethod.Get,"/chat?after=0")){}

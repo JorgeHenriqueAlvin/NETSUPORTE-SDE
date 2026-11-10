@@ -421,7 +421,9 @@ static class DesktopNative
     static IntPtr Attach(int session)
     {
         if(!Unlocked(session))throw new UnauthorizedAccessException("Sessão bloqueada ou desconectada.");
-        var current=OpenInputDesktop(0,false,0x181);
+        // SendInput also requires DESKTOP_JOURNALPLAYBACK (0x20). Read/write
+        // access alone permits screenshots but Windows rejects injected input.
+        var current=OpenInputDesktop(0,false,0x1A1);
         if(current==IntPtr.Zero)throw new Win32Exception();
         var name=new StringBuilder(256);
         if(!GetUserObjectInformation(current,2,name,512,out _))
