@@ -519,6 +519,7 @@ sealed class Technician:Form
     }
     async Task Connect()
     {
+        if(disconnecting)return;
         connect.Enabled=false;
         try
         {
@@ -598,10 +599,11 @@ sealed class Technician:Form
     }
     async Task Input(InputCommand command)
     {
-        if(client?.Session is null)return;
+        var active=client;
+        if(active?.Session is null)return;
         command=command with{Layout=frameLayout};
         await operations.WaitAsync();
-        try{if(client?.Session is not null){using var r=await client.Request(HttpMethod.Post,"/input",command);}}
+        try{if(ReferenceEquals(client,active)&&active.Session is not null){using var r=await active.Request(HttpMethod.Post,"/input",command);}}
         catch(HttpRequestException e)when(e.StatusCode==System.Net.HttpStatusCode.Conflict&&e.Message.Contains("monitores",StringComparison.OrdinalIgnoreCase))
         {held.Clear();status.Text="Monitores alterados. Aguarde a imagem atualizada e repita o comando.";await Frame();}
         finally{operations.Release();}

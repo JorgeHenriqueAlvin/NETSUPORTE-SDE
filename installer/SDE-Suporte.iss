@@ -89,6 +89,7 @@ Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile
 Type: files; Name: "{app}\Agent\agent.json"
 Type: files; Name: "{app}\Agent\access-policy.json"
 Type: files; Name: "{app}\Agent\setup-error.txt"
+Type: files; Name: "{app}\Agent\desktop-service.jsonl"
 Type: files; Name: "{app}\scripts\computer.sdehost"
 Type: files; Name: "{app}\scripts\*.sdetech"
 Type: files; Name: "{app}\scripts\agent-setup.log"

@@ -76,10 +76,12 @@ sealed class DesktopBridge:IDisposable
 {
     readonly NamedPipeClientStream pipe;
     readonly SemaphoreSlim serial=new(1,1);
+    public static string LastError {get;private set;}="";
     DesktopBridge(NamedPipeClientStream pipe)=>this.pipe=pipe;
     public static async Task<DesktopBridge?> Open(DesktopProof proof,string sessionId)
     {
-        if(!DesktopWire.TrustedLocation)return null;
+        LastError="";
+        if(!DesktopWire.TrustedLocation){LastError="default_path_required";return null;}
         NamedPipeClientStream? worker=null;
         try
         {
@@ -98,7 +100,7 @@ sealed class DesktopBridge:IDisposable
             if(response.Error!="")throw new IOException(response.Error);
             return new(worker);
         }
-        catch{worker?.Dispose();return null;}
+        catch(Exception e){LastError=e.GetType().Name+": "+e.Message;worker?.Dispose();return null;}
     }
     public async Task<DesktopReply> Request(DesktopProof proof)
     {
@@ -149,6 +151,11 @@ static class DesktopService
         Status(3);stop.Cancel();
         lock(gate)foreach(var process in workers.Values)try{if(!process.HasExited)process.Kill();}catch{}
     }
+    internal static void Failure(string action,Exception e)
+    {
+        if(!DesktopWire.TrustedServiceLocation||!WindowsIdentity.GetCurrent().IsSystem)return;
+        try{OperationalData.Write(Path.Combine(AppContext.BaseDirectory,"desktop-service.jsonl"),new{at=DateTimeOffset.UtcNow,action,error=e.GetType().Name,code=e is Win32Exception win?win.NativeErrorCode:0,detail=e.Message});}catch{}
+    }
     static void Run(int count,IntPtr args)
     {
         statusHandle=RegisterServiceCtrlHandler(DesktopWire.ServiceName,handler);if(statusHandle==IntPtr.Zero)return;
@@ -166,7 +173,7 @@ static class DesktopService
             }
         }
         catch(OperationCanceledException)when(stop.IsCancellationRequested){}
-        catch{error=1;}
+        catch(Exception e){Failure("service_failed",e);error=1;}
         finally{lock(gate)foreach(var child in workers.Values)try{if(!child.HasExited)child.Kill();}catch{}Status(1,error);}
     }
     static void Accept(NamedPipeServerStream pipe,RequestVerifier verifier)
@@ -191,7 +198,7 @@ static class DesktopService
             DesktopWire.Write(pipe,new DesktopReply(WorkerPipe:name,WorkerPid:child.Id),DesktopWire.MaxReply);pipe.Dispose();
             child.WaitForExit();
         }
-        catch{try{DesktopWire.Write(pipe,new DesktopReply(Error:"Serviço de desktop indisponível ou solicitação recusada."),DesktopWire.MaxReply);}catch{}}
+        catch(Exception e){Failure("helper_failed",e);try{DesktopWire.Write(pipe,new DesktopReply(Error:"Serviço de desktop indisponível ou solicitação recusada."),DesktopWire.MaxReply);}catch{}}
         finally
         {
             pipe.Dispose();

@@ -21,6 +21,8 @@ A tela cheia agora guarda o contêiner original do seletor de monitores, em vez 
 
 O teste automatizado do serviço usa o desktop normal e conta administrativa de CI. Ele não comprova interação por uma conta padrão, UAC real, monitores com escalas diferentes ou transições de bloqueio em equipamentos da SDE.
 
+Diagnóstico do serviço: `Agent/desktop-service.jsonl` (sem imagens, senhas ou corpo dos comandos). Falha ao abrir o auxiliar aparece também no `audit.jsonl` do funcionário como `desktop_helper_unavailable`, com o motivo.
+
 ## Piloto Windows obrigatório antes da distribuição
 
 1. Instalar Cliente no caminho padrão com administrador e entrar no Windows com conta de funcionário sem administração.

@@ -19,6 +19,10 @@ try {
  if((Get-Service SDE-Suporte-Desktop).Status -ne 'Stopped'){throw 'Servico nao parou para atualizacao.'}
  & "$root\scripts\Configure-DesktopService.ps1" -InstallDirectory $agentDir
  if((Get-Service SDE-Suporte-Desktop).Status -ne 'Running'){throw 'Servico nao reiniciou.'}
+} catch {
+ Get-Content "$agentDir\desktop-service.jsonl" -ErrorAction SilentlyContinue | Select-Object -Last 30
+ Get-Content "$env:LOCALAPPDATA\SdeSuporte\logs\audit.jsonl" -ErrorAction SilentlyContinue | Select-Object -Last 30
+ throw
 } finally {
  if($agent){$agent.Refresh();if(-not $agent.HasExited){Stop-Process -Id $agent.Id -Force}}
  if(Test-Path $agentDir){& "$root\scripts\Uninstall-Agent.ps1" -InstallDirectory $agentDir -RemoveFiles}

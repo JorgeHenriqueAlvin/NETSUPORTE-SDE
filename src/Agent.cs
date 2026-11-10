@@ -200,7 +200,7 @@ sealed class Agent:Form
                 var helper=await DesktopBridge.Open(DesktopProof.From(c.Request,body),active.Id);
                 if(unavailable||!Native.DesktopAvailable()){helper?.Dispose();await Reply(c.Response,409,new{error="Computador indisponível."});return;}
                 desktopBridge=helper;
-                Audit(helper is null?"desktop_helper_unavailable":"desktop_helper_connected",user);
+                Audit(helper is null?"desktop_helper_unavailable":"desktop_helper_connected",user,helper is null?DesktopBridge.LastError:"");
                 Audit("started",user);session=active;activity=DateTimeOffset.UtcNow;
                 chatHistory=new();chat?.Dispose();chat=new EmployeeChat(tech.Name);
                 chat.Messages.Send=value=>{

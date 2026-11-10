@@ -8,7 +8,7 @@ static class Program
         // Service/worker threads must not create GUI windows before switching desktops.
         if(args.Length==1&&args[0]=="--desktop-service"){DesktopService.Start();return;}
         if(args.Length==3&&args[0]=="--desktop-worker"&&int.TryParse(args[2],out var agentPid))
-        {try{DesktopService.Worker(args[1],agentPid);}catch{}return;}
+        {try{DesktopService.Worker(args[1],agentPid);}catch(Exception e)when(e is EndOfStreamException or OperationCanceledException){}catch(Exception e){DesktopService.Failure("worker_failed",e);}return;}
 #endif
 #if !DESKTOP_SERVICE
         ApplicationConfiguration.Initialize();
