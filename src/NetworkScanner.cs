@@ -60,7 +60,7 @@ public static class NetworkScanner
         string? certificate=null;
         using var handler=new HttpClientHandler{UseProxy=false,AllowAutoRedirect=false,
             ServerCertificateCustomValidationCallback=(_,cert,_,_)=>{
-                if(cert is null||DateTime.UtcNow<cert.NotBefore.ToUniversalTime()||DateTime.UtcNow>cert.NotAfter.ToUniversalTime())return false;
+                if(cert is null)return false;
                 certificate=Convert.ToHexString(SHA256.HashData(cert.RawData));return true;
             }};
         // Bootstrap carries public enrollment metadata only, never credentials or session

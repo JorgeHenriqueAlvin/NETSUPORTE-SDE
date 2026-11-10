@@ -45,7 +45,7 @@ public static class AgentConnection
         string? pin=null;
         using var handler=new HttpClientHandler{UseProxy=false,AllowAutoRedirect=false,
             ServerCertificateCustomValidationCallback=(_,cert,_,_)=>{
-                if(cert is null||DateTime.UtcNow<cert.NotBefore.ToUniversalTime()||DateTime.UtcNow>cert.NotAfter.ToUniversalTime())return false;
+                if(cert is null)return false;
                 pin=Convert.ToHexString(SHA256.HashData(cert.RawData));return true;
             }};
         using var http=new HttpClient(handler){Timeout=TimeSpan.FromSeconds(5),MaxResponseContentBufferSize=50000};
