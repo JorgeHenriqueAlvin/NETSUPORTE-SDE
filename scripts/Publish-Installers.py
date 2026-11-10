@@ -63,8 +63,8 @@ def main():
             raise
         release = call("POST", "/releases", value={
             "tag_name": tag, "target_commitish": sha, "draft": True,
-            "name": "SDE Suporte " + version + " — atualização e diagnóstico",
-            "body": "Interface renovada: tema azul e turquesa, tabelas e fichas padronizadas, ações por tarefa e páginas internas com mais espaço. Inventário, avisos e atualizações têm rolagem vertical em janelas compactas; remoção de cadastros exige confirmação. Mantém autenticação, certificados e consentimento. Capturas das seis áreas em 900×560, 1024×768 e 1360×850 e testes de regressão executados. Detalhes e limites em docs/INTERFACE-0.12.20.md. O agente Raspberry é distribuído separadamente na release raspberry-stable. Validação em máquinas reais do setor, DPI, toque, leitor de tela e Raspberry físico continua necessária.",
+            "name": "SDE Suporte " + version + " — acesso com relógio atrasado",
+            "body": "Permite conectar ao Cliente com data/hora atrasada usando o horário do agente nas solicitações assinadas. Preserva identidade do certificado, assinatura da equipe, proteção contra repetição e autorização de acesso. Atualize Técnico e Cliente. Não altera o relógio do Windows. Autorizações da equipe expiradas continuam bloqueadas.",
         })
     if release["target_commitish"] != sha:
         raise ValueError("Version already belongs to a different source commit; increment it")
