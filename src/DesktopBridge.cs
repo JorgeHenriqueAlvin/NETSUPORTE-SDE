@@ -261,8 +261,9 @@ static class DesktopService
                 DesktopReply response;
                 try
                 {
-                    using var desktop=DesktopNative.Attach(session);
-                    if(p.Method=="GET"&&(p.Path=="/frame"||p.Path.StartsWith("/frame?",StringComparison.Ordinal)))response=Capture(p.Path);
+                    response=DesktopNative.OnInputDesktop(session,()=>{
+                    DesktopReply result;
+                    if(p.Method=="GET"&&(p.Path=="/frame"||p.Path.StartsWith("/frame?",StringComparison.Ordinal)))result=Capture(p.Path);
                     else if(p.Method=="POST"&&p.Path=="/input")
                     {
                         var input=JsonSerializer.Deserialize<InputCommand>(p.Body,Json.Options)??throw new ArgumentException("Entrada inválida.");
@@ -274,19 +275,21 @@ static class DesktopService
                         Native.Apply(input);
                         if(input.Kind=="keyDown")keys.Add(input.Key);if(input.Kind=="keyUp")keys.Remove(input.Key);
                         if(input.Kind=="down")buttons.Add(input.Key);if(input.Kind=="up")buttons.Remove(input.Key);
-                        response=new();
+                        result=new();
                     }
                     // Signed chat polling keeps the consented helper alive when
                     // the technician switches away from the remote screen tab.
-                    else if((p.Method=="GET"&&(p.Path=="/chat"||p.Path.StartsWith("/chat?after=",StringComparison.Ordinal)))||(p.Method=="POST"&&p.Path=="/chat"))response=new();
+                    else if((p.Method=="GET"&&(p.Path=="/chat"||p.Path.StartsWith("/chat?after=",StringComparison.Ordinal)))||(p.Method=="POST"&&p.Path=="/chat"))result=new();
                     else throw new UnauthorizedAccessException("Operação não permitida no auxiliar.");
+                    return result;
+                    });
                     if(!DesktopNative.Unlocked(session))break;
                 }
-                catch(Exception e){response=new(Error:e.Message,Status:e is InvalidOperationException?409:500);}
+                catch(Exception e){Failure("operation_failed",e);response=new(Error:e.Message,Status:e is InvalidOperationException?409:500);}
                 DesktopWire.Write(pipe,response,DesktopWire.MaxReply);
             }
         }
-        finally{try{using var desktop=DesktopNative.Attach(session);Release(keys,buttons);}catch{}}
+        finally{try{DesktopNative.OnInputDesktop(session,()=>{Release(keys,buttons);return true;});}catch{}}
     }
     static void Release(HashSet<int> keys,HashSet<int> buttons)
     {
@@ -324,12 +327,10 @@ static class DesktopNative
     [StructLayout(LayoutKind.Sequential)] struct ProcessInfo {public IntPtr Process,Thread;public int Pid,Tid;}
     [DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern bool CreateProcessAsUser(SafeAccessTokenHandle token,string application,StringBuilder command,IntPtr processAttributes,IntPtr threadAttributes,bool inherit,uint flags,IntPtr environment,string directory,ref StartupInfo startup,out ProcessInfo process);
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr value);
-    [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
-    [DllImport("user32.dll")] static extern IntPtr GetThreadDesktop(uint thread);
     [DllImport("user32.dll",SetLastError=true)] static extern IntPtr OpenInputDesktop(uint flags,bool inherit,uint access);
     [DllImport("user32.dll",SetLastError=true)] static extern bool SetThreadDesktop(IntPtr desktop);
     [DllImport("user32.dll")] static extern bool CloseDesktop(IntPtr desktop);
-    [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern bool GetUserObjectInformation(IntPtr handle,int index,StringBuilder name,int size,out int needed);
+    [DllImport("user32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern bool GetUserObjectInformation(IntPtr handle,int index,StringBuilder name,int size,out int needed);
     [DllImport("wtsapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern bool WTSQuerySessionInformation(IntPtr server,int session,int info,out IntPtr buffer,out uint bytes);
     [DllImport("wtsapi32.dll")] static extern void WTSFreeMemory(IntPtr buffer);
     public static int ClientPid(NamedPipeServerStream pipe)=>GetNamedPipeClientProcessId(pipe.SafePipeHandle,out var pid)?checked((int)pid):throw new Win32Exception();
@@ -404,18 +405,31 @@ static class DesktopNative
             }
         }
     }
-    public static IDisposable Attach(int session)
+    public static T OnInputDesktop<T>(int session,Func<T> operation)
+    {
+        T result=default!;Exception? error=null;IntPtr desktop=IntPtr.Zero;
+        // A fresh MTA thread has no CLR STA/COM marshaling windows, WinForms
+        // controls or hooks. SetThreadDesktop refuses a thread owning any window.
+        var thread=new Thread(()=>{try{desktop=Attach(session);result=operation();}catch(Exception e){error=e;}}){IsBackground=true};
+        thread.SetApartmentState(ApartmentState.MTA);thread.Start();thread.Join();
+        // The thread has exited, so no live thread/window still owns this handle.
+        // Closing here also avoids switching an STA/GUI thread back afterward.
+        if(desktop!=IntPtr.Zero)CloseDesktop(desktop);
+        if(error is not null)System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
+        return result;
+    }
+    static IntPtr Attach(int session)
     {
         if(!Unlocked(session))throw new UnauthorizedAccessException("Sessão bloqueada ou desconectada.");
-        var old=GetThreadDesktop(GetCurrentThreadId());var current=OpenInputDesktop(0,false,0x181);
+        var current=OpenInputDesktop(0,false,0x181);
         if(current==IntPtr.Zero)throw new Win32Exception();
         var name=new StringBuilder(256);
-        if(!GetUserObjectInformation(current,2,name,512,out _)||!(name.ToString().Equals("Default",StringComparison.OrdinalIgnoreCase)||name.ToString().Equals("Winlogon",StringComparison.OrdinalIgnoreCase))||!SetThreadDesktop(current))
-        {CloseDesktop(current);throw new UnauthorizedAccessException("Desktop protegido indisponível.");}
-        return new Attached(old,current);
-    }
-    sealed class Attached(IntPtr previous,IntPtr current):IDisposable
-    {
-        public void Dispose(){if(!SetThreadDesktop(previous))Environment.FailFast("Não foi possível restaurar o desktop do auxiliar.");CloseDesktop(current);}
+        if(!GetUserObjectInformation(current,2,name,512,out _))
+        {int code=Marshal.GetLastWin32Error();CloseDesktop(current);throw new Win32Exception(code,"Não foi possível identificar o desktop ativo.");}
+        if(!(name.ToString().Equals("Default",StringComparison.OrdinalIgnoreCase)||name.ToString().Equals("Winlogon",StringComparison.OrdinalIgnoreCase)))
+        {CloseDesktop(current);throw new UnauthorizedAccessException("Desktop não permitido: "+name);}
+        if(!SetThreadDesktop(current))
+        {int code=Marshal.GetLastWin32Error();CloseDesktop(current);throw new Win32Exception(code,"Não foi possível anexar a thread ao desktop ativo ("+code+").");}
+        return current;
     }
 }

@@ -42,13 +42,13 @@ jobs:
       - name: Preparar pacote de teste e compatibilidade
         shell: pwsh
         run: ./scripts/Build-Template.ps1
-      - name: Testar instalacao, seis tecnicos, captura real e varredura IP
-        shell: pwsh
-        run: ./scripts/Test-Windows.ps1
       - name: Testar servico de desktop SYSTEM, autorizacao, captura e remocao
         timeout-minutes: 4
         shell: pwsh
         run: ./tests/Test-DesktopService.ps1
+      - name: Testar instalacao, seis tecnicos, captura real e varredura IP
+        shell: pwsh
+        run: ./scripts/Test-Windows.ps1
       - name: Conferir executaveis PE
         shell: pwsh
         run: |
