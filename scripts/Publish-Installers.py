@@ -63,7 +63,7 @@ def main():
             raise
         release = call("POST", "/releases", value={
             "tag_name": tag, "target_commitish": sha, "draft": True,
-            "name": "SDE Suporte " + version + " — acesso com relógio atrasado",
+            "name": "SDE Suporte " + version + " — UAC remoto e encerramento da tela cheia",
             "body": "Permite conectar ao Cliente com data/hora atrasada usando o horário do agente nas solicitações assinadas. Preserva identidade do certificado, assinatura da equipe, proteção contra repetição e autorização de acesso. Atualize Técnico e Cliente. Não altera o relógio do Windows. Autorizações da equipe expiradas continuam bloqueadas.",
         })
     if release["target_commitish"] != sha:

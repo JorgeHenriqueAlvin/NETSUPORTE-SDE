@@ -52,6 +52,8 @@ sealed class Technician:Form
     readonly CheckBox autoFullScreen=new(){AutoSize=true,Text="Abrir em tela cheia",Checked=true};
     readonly System.Windows.Forms.Timer chatClock=new(){Interval=1000};
     FullScreenWindow? fullScreen;
+    Control? monitorHome;
+    bool disconnecting;
     bool pollingChat,chatAvailable;
     long chatCursor;
     readonly ComboBox monitorPicker=new(){DropDownStyle=ComboBoxStyle.DropDownList,Width=280};
@@ -126,7 +128,7 @@ sealed class Technician:Form
         var moreActions=new Button{Text="Mais ações ▾",AutoSize=true,AccessibleName="Exibir ações de máquinas, Raspberry e equipe"};
         moreActions.Click+=(_,_)=>{additionalActions.Visible=!additionalActions.Visible;moreActions.Text=additionalActions.Visible?"Menos ações ▴":"Mais ações ▾";};toolbar.Controls.Add(moreActions);
         var monitorBar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=52,Padding=new Padding(8)};
-        monitorBar.Controls.Add(new Label{Text="Monitor do cliente",AutoSize=true,Margin=new Padding(0,7,10,0)});monitorBar.Controls.Add(monitorPicker);
+        monitorBar.Controls.Add(new Label{Text="Monitor do cliente",AutoSize=true,Margin=new Padding(0,7,10,0)});monitorBar.Controls.Add(monitorPicker);monitorHome=monitorBar;
         monitorPicker.SelectedIndexChanged+=(_,_)=>{if(!updatingMonitors&&monitorPicker.SelectedItem is RemoteMonitor m){selectedMonitor=m.Id;screen.Focus();}};
         remotePage.Controls.Add(screen);remotePage.Controls.Add(monitorBar);remotePage.Controls.Add(sessionBar);chatPage.Controls.Add(chatPanel);
         screen.Paint+=(_,e)=>{if(screen.Image is null)TextRenderer.DrawText(e.Graphics,"Atendimento remoto\n\nSelecione uma máquina e clique em Conectar.\nA imagem aparecerá após a autorização do agente.",Font,Rectangle.Inflate(screen.ClientRectangle,-24,-24),Color.FromArgb(211,224,236),TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter|TextFormatFlags.WordBreak);};
@@ -527,15 +529,33 @@ sealed class Technician:Form
             chatCursor=0;chatPanel.ClearHistory();chatPanel.SetAvailable(chatAvailable);
             chatPanel.SetTitle(chatAvailable?$"Conversa com {d.Name} • Técnico: {identity.Public.Name}":"Atualize o Cliente para usar o chat.");
             tabs.SelectedTab=remotePage;await Frame();timer.Start();chatClock.Start();
-            if(autoFullScreen.Checked)ToggleFullScreen();screen.Focus();
-        }finally{connect.Enabled=true;}
+            if(client?.Session is not null&&autoFullScreen.Checked)ToggleFullScreen();screen.Focus();
+        }
+        catch{try{await Disconnect();}catch{}throw;}
+        finally{connect.Enabled=true;}
     }
     async Task Disconnect()
     {
-        timer.Stop();chatClock.Stop();ExitFullScreen();await operations.WaitAsync();
-        try{if(client is not null){try{using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(2));await client.Stop(timeout.Token);}finally{client.Dispose();client=null;}}}
-        finally{operations.Release();held.Clear();var old=screen.Image;screen.Image=null;old?.Dispose();status.Text="Atendimento encerrado.";chatAvailable=false;chatPanel.SetAvailable(false);chatPanel.SetTitle("Atendimento encerrado. Conecte novamente para conversar.");}
+        if(disconnecting){ExitFullScreen();return;}
+        disconnecting=true;
+        timer.Stop();chatClock.Stop();
+        // Detach immediately: in-flight frames/queued input must not restore a
+        // closed session while the network shutdown is still pending.
+        var previous=client;client=null;
+        try
+        {
+            ExitFullScreen();
+            held.Clear();var old=screen.Image;screen.Image=null;old?.Dispose();
+            chatAvailable=false;chatPanel.SetAvailable(false);
+            chatPanel.SetTitle("Atendimento encerrado. Conecte novamente para conversar.");
+            status.Text="Atendimento encerrado.";
+            await operations.WaitAsync();
+            try{if(previous is not null){using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(2));await previous.Stop(timeout.Token);}}
+            finally{operations.Release();}
+        }
+        finally{previous?.Dispose();disconnecting=false;}
     }
+
     async Task Frame()
     {
         if(client?.Session is null||loading)return;
@@ -591,7 +611,7 @@ sealed class Technician:Form
     void ToggleFullScreen()
     {
         if(fullScreen is not null){ExitFullScreen();return;}
-        if(client?.Session is null){MessageBox.Show("Conecte a uma máquina antes de abrir a tela cheia.");return;}
+        if(disconnecting||client?.Session is null){MessageBox.Show("Conecte a uma máquina antes de abrir a tela cheia.");return;}
         fullScreen=new FullScreenWindow(screen,ExitFullScreen,()=>{ExitFullScreen();tabs.SelectedTab=chatPage;},()=>Safe(Disconnect),monitorPicker);
         fullScreen.FormClosing+=(_,e)=>{e.Cancel=true;ExitFullScreen();};
         fullScreen.Show(this);screen.Focus();
@@ -599,8 +619,15 @@ sealed class Technician:Form
     void ExitFullScreen()
     {
         if(fullScreen is null)return;
-        var previous=fullScreen;fullScreen=null;remotePage.Controls.Add(screen);remotePage.Controls.SetChildIndex(screen,0);var bar=remotePage.Controls.OfType<FlowLayoutPanel>().Single();bar.Controls.Add(monitorPicker);previous.Dispose();
-        tabs.SelectedTab=remotePage;screen.Focus();
+        var previous=fullScreen;fullScreen=null;
+        try
+        {
+            // Keep the actual monitor container; this page also has a session bar.
+            remotePage.Controls.Add(screen);remotePage.Controls.SetChildIndex(screen,0);
+            monitorHome?.Controls.Add(monitorPicker);
+        }
+        finally{previous.Hide();previous.Dispose();}
+        if(!closing){tabs.SelectedTab=remotePage;Activate();screen.Focus();}
     }
     async Task SendChat(string value)
     {

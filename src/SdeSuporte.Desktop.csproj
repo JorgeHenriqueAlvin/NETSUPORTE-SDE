@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+ <PropertyGroup>
+  <RootNamespace>SdeSuporte</RootNamespace>
+  <OutputType>WinExe</OutputType>
+  <TargetFramework>net10.0-windows</TargetFramework>
+  <UseWindowsForms>true</UseWindowsForms>
+  <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  <ImplicitUsings>enable</ImplicitUsings>
+  <Nullable>enable</Nullable>
+  <ApplicationManifest>app.manifest</ApplicationManifest>
+  <DefineConstants>$(DefineConstants);AGENT_ONLY;DESKTOP_SERVICE</DefineConstants>
+  <AssemblyName>SDE-Suporte-Desktop</AssemblyName>
+ </PropertyGroup>
+ <ItemGroup><EmbeddedResource Include="TeamDeployment.json" LogicalName="SdeSuporte.TeamDeployment" /></ItemGroup>
+</Project>
+

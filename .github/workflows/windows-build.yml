@@ -25,7 +25,7 @@ jobs:
       - name: Validar sintaxe dos scripts PowerShell
         shell: pwsh
         run: |
-          Get-ChildItem scripts/*.ps1 | ForEach-Object {
+          Get-ChildItem scripts/*.ps1,tests/*.ps1 | ForEach-Object {
             $tokens = $null
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$tokens,[ref]$errors) | Out-Null
@@ -45,6 +45,10 @@ jobs:
       - name: Testar instalacao, seis tecnicos, captura real e varredura IP
         shell: pwsh
         run: ./scripts/Test-Windows.ps1
+      - name: Testar servico de desktop SYSTEM, autorizacao, captura e remocao
+        timeout-minutes: 4
+        shell: pwsh
+        run: ./tests/Test-DesktopService.ps1
       - name: Conferir executaveis PE
         shell: pwsh
         run: |
@@ -71,7 +75,7 @@ jobs:
       - name: Verificar pacote Cliente válido, ausente, corrompido e incompatível
         shell: pwsh
         run: |
-          dotnet run --project tests/SdeSuporte.Tests.csproj -c Release -- client-package release/SDE-Suporte-Cliente-Instalar.exe 0.12.21
+          dotnet run --project tests/SdeSuporte.Tests.csproj -c Release -- client-package release/SDE-Suporte-Cliente-Instalar.exe 0.13.0
           if ($LASTEXITCODE -ne 0) { throw 'Verificacao de pacote e persistencia falhou.' }
       - name: Testar instalacao e remocao da versao Tecnico
         shell: pwsh
@@ -99,7 +103,7 @@ jobs:
           (Get-Item "$target\Packages\SDE-Suporte-Cliente-Instalar.exe").LastWriteTime = (Get-Date).AddDays(2)
           $repair = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$target") -PassThru -Wait
           if ($repair.ExitCode -ne 0) { throw 'Reinstalacao do Tecnico falhou.' }
-          dotnet run --project tests/SdeSuporte.Tests.csproj -c Release -- client-package "$target\Packages\SDE-Suporte-Cliente-Instalar.exe" 0.12.21
+          dotnet run --project tests/SdeSuporte.Tests.csproj -c Release -- client-package "$target\Packages\SDE-Suporte-Cliente-Instalar.exe" 0.13.0
           if ($LASTEXITCODE -ne 0) { throw 'Atualizacao nao recuperou pacote embutido.' }
           $uninstall = Start-Process "$target\unins000.exe" -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
           if ($uninstall.ExitCode -ne 0) { throw "Desinstalacao falhou: $($uninstall.ExitCode)" }

@@ -5,6 +5,8 @@ if($PSVersionTable.PSEdition -eq 'Desktop') {
  $env:PSModulePath=(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')+';'+(Join-Path $PSHOME 'Modules')
  Import-Module Microsoft.PowerShell.Security -ErrorAction Stop
 }
+$desktopService=Join-Path $PSScriptRoot 'Configure-DesktopService.ps1'
+if(Test-Path -LiteralPath $desktopService){& $desktopService -InstallDirectory $InstallDirectory -Remove}
 $path=Join-Path $InstallDirectory 'agent.json'
 if (-not (Test-Path -LiteralPath $path)) { return }
 $config=Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json

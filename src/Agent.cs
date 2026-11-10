@@ -34,6 +34,7 @@ sealed class Agent:Form
     readonly string log;
     AgentDiscovery? discovery;
     RemoteSession? session;
+    DesktopBridge? desktopBridge;
     MessageHistory chatHistory=new();
     EmployeeChat? chat;
     EmployeeAnnouncements? announcements;
@@ -98,7 +99,9 @@ sealed class Agent:Form
     void Audit(string action,string technician,string detail="")=>OperationalData.Write(log,new{id=Guid.NewGuid().ToString("N"),at=DateTimeOffset.UtcNow,action,technician,machine=config.Device.Name,deviceId=config.Device.Id,config.Device.Sector,detail});
     void End(string reason)
     {
-        var previous=session;session=null;if(previous is not null)idleSince=DateTimeOffset.UtcNow;
+        var previous=session;session=null;
+        desktopBridge?.Dispose();desktopBridge=null;
+        if(previous is not null)idleSince=DateTimeOffset.UtcNow;
         if(previous is not null)
         {
             foreach(int k in heldKeys)try{Native.Apply(new("keyUp",Key:k));}catch{}
@@ -144,7 +147,7 @@ sealed class Agent:Form
             if(path=="/health"&&method=="GET")
             {
                 await Reply(c.Response,200,new{deviceId=config.Device.Id,hostname=Environment.MachineName,version=typeof(Agent).Assembly.GetName().Version?.ToString(3),
-                    activeSession=session is not null,desktopAvailable=!unavailable&&Native.DesktopAvailable(),at=DateTimeOffset.UtcNow,
+                    activeSession=session is not null,desktopHelper=desktopBridge is not null,desktopAvailable=!unavailable&&Native.DesktopAvailable(),at=DateTimeOffset.UtcNow,
                     update=OperationalData.UpdateStatus(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,"..")))});return;
             }
             if(path=="/audit"&&method=="GET"){await Reply(c.Response,200,OperationalData.Tail(log));return;}
@@ -194,6 +197,10 @@ sealed class Agent:Form
                 else Audit("preauthorized_access",user,"Política administrativa local; sem bypass de recusa.");
                 if(unavailable||!Native.DesktopAvailable()){await Reply(c.Response,409,new{error="Computador indisponível."});return;}
                 var active=new RemoteSession(Convert.ToHexString(RandomNumberGenerator.GetBytes(32)),tech.Id,tech.Name,DateTimeOffset.UtcNow,DateTimeOffset.UtcNow.AddHours(1));
+                var helper=await DesktopBridge.Open(DesktopProof.From(c.Request,body),active.Id);
+                if(unavailable||!Native.DesktopAvailable()){helper?.Dispose();await Reply(c.Response,409,new{error="Computador indisponível."});return;}
+                desktopBridge=helper;
+                Audit(helper is null?"desktop_helper_unavailable":"desktop_helper_connected",user);
                 Audit("started",user);session=active;activity=DateTimeOffset.UtcNow;
                 chatHistory=new();chat?.Dispose();chat=new EmployeeChat(tech.Name);
                 chat.Messages.Send=value=>{
@@ -209,16 +216,20 @@ sealed class Agent:Form
             var current=session;
             if(current is null||current.TechnicianId!=tech.Id||current.Id!=H("X-Session")||current.Expires<=DateTimeOffset.UtcNow)
             {await Reply(c.Response,403,new{error="Sessão encerrada. Conecte novamente."});return;}
-            if(unavailable||!Native.DesktopAvailable()){End("desktop_unavailable");await Reply(c.Response,409,new{error="Área de trabalho indisponível."});return;}
+            // A consented helper can follow the UAC desktop; lock/logoff still
+            // revokes the session via SessionChanged and the helper's WTS checks.
+            if(unavailable||(desktopBridge is null&&!Native.DesktopAvailable())){End("desktop_unavailable");await Reply(c.Response,409,new{error="Área de trabalho protegida indisponível. Atualize o Cliente no caminho padrão para instalar o serviço de UAC."});return;}
             activity=DateTimeOffset.UtcNow;
             if(path=="/session/end"&&method=="POST"){End("technician_stop");await Reply(c.Response,200,new{ok=true});return;}
             if(path=="/chat"&&method=="GET")
             {
+                if(desktopBridge is not null)await desktopBridge.Request(DesktopProof.From(c.Request,body));
                 if(!long.TryParse(c.Request.QueryString["after"]??"0",out var after)||after<0){await Reply(c.Response,400,new{error="Cursor inválido."});return;}
                 await Reply(c.Response,200,chatHistory.After(after));return;
             }
             if(path=="/chat"&&method=="POST")
             {
+                if(desktopBridge is not null)await desktopBridge.Request(DesktopProof.From(c.Request,body));
                 var payload=JsonSerializer.Deserialize<MessageText>(body,Json.Options);
                 SupportMessage message;
                 try{message=chatHistory.Add(user,payload?.Text??"");}catch(ArgumentException e){await Reply(c.Response,400,new{error=e.Message});return;}
@@ -229,6 +240,18 @@ sealed class Agent:Form
             {
                 if(capturing){await Reply(c.Response,429,new{error="Captura em andamento."});return;}
                 capturing=true;ownsFrame=true;
+                if(desktopBridge is not null)
+                {
+                    var frame=await desktopBridge.Request(DesktopProof.From(c.Request,body));
+                    if(frame.Image is null)throw new IOException("O auxiliar não retornou a imagem.");
+                    c.Response.Headers["X-SDE-Monitors"]=frame.Layout;
+                    c.Response.Headers["X-SDE-Monitor"]=Uri.EscapeDataString(frame.Monitor);
+                    c.Response.Headers["X-SDE-Offset-X"]=frame.OffsetX.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    c.Response.Headers["X-SDE-Offset-Y"]=frame.OffsetY.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    serial.Release();locked=false;
+                    c.Response.ContentType="image/jpeg";c.Response.Headers["Cache-Control"]="no-store";
+                    c.Response.ContentLength64=frame.Image.Length;await c.Response.OutputStream.WriteAsync(frame.Image);return;
+                }
                 var displays=Screen.AllScreens;
                 string? requested=c.Request.QueryString["monitor"];
                 var selected=requested is null or "all"?null:displays.FirstOrDefault(s=>s.DeviceName==requested)??displays.FirstOrDefault(s=>s.Primary)??displays[0];
@@ -256,6 +279,11 @@ sealed class Agent:Form
             {
                 var input=JsonSerializer.Deserialize<InputCommand>(body,Json.Options);
                 if(input is null||input.Text is null||input.Text.Length>1000){await Reply(c.Response,400,new{error="Entrada inválida."});return;}
+                if(desktopBridge is not null)
+                {
+                    await desktopBridge.Request(DesktopProof.From(c.Request,body));
+                    await Reply(c.Response,200,new{ok=true});return;
+                }
                 if((input.Kind is "move" or "down" or "up")&&input.Layout!=""&&input.Layout!=MonitorCoordinates.Layout(Screen.AllScreens))
                 {Native.ReleaseInput();heldKeys.Clear();heldMouse.Clear();await Reply(c.Response,409,new{error="Os monitores mudaram. Aguarde a próxima imagem antes de clicar."});return;}
                 Native.Apply(input);
@@ -265,6 +293,7 @@ sealed class Agent:Form
             }
             await Reply(c.Response,404,new{error="Operação inexistente."});
         }
+        catch(HttpRequestException e)when(e.StatusCode is not null){try{await Reply(c.Response,(int)e.StatusCode.Value,new{error=e.Message});}catch{}}
         catch(Exception e){try{Audit("error",user,e.GetType().Name);await Reply(c.Response,500,new{error=e.Message});}catch{}}
         finally{c.Response.Close();if(ownsFrame)capturing=false;if(locked)serial.Release();}
     }

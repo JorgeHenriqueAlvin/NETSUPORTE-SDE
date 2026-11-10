@@ -1,3 +1,7 @@
+## Atualizar para 0.13.0
+
+Reinstale o Cliente no caminho padrão `C:\Program Files\SDE-Suporte` com permissão administrativa. O instalador registra o serviço `SDE-Suporte-Desktop` automaticamente. Atualize o Técnico para corrigir a saída da tela cheia. Durante o atendimento autorizado, o auxiliar permite trabalhar com a janela UAC; a senha administrativa continua necessária. O serviço não permite iniciar atendimento em login/tela bloqueada. Valide o [piloto UAC](docs/UAC-0.13.0.md) antes de distribuir.
+
 # Começar com a versão 0.12.14
 
 1. Atualize Técnico e Clientes Windows uma primeira vez; preserve as configurações existentes.

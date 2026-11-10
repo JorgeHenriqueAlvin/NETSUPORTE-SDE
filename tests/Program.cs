@@ -48,6 +48,7 @@ static class Tests
                 }finally{Directory.Delete(scratch,true);}return 0;
             }
             if(args[0]=="ui"){MessagingTests();return 0;}
+            if(args[0]=="desktop-service"){await DesktopServiceLive(args[1],args[2]);return 0;}
             if(args[0] is "prepare" or "prepare-team")
             {
                 Directory.CreateDirectory(args[1]);
@@ -134,6 +135,35 @@ static class Tests
                     var fixtures=(List<Device>)typeof(Technician).GetField("devices",flags)!.GetValue(console)!;fixtures.Clear();
                     var presence=(Dictionary<string,DateTimeOffset>)typeof(Technician).GetField("online",flags)!.GetValue(console)!;
                     for(int i=0;i<3;i++){var d=new Device(Guid.NewGuid().ToString(),"Cliente "+i,"Teste","127.0.0.1",17443,new string('0',64));fixtures.Add(d);if(i<2)presence[d.Id]=DateTimeOffset.UtcNow;}
+                    // Regression: the real page has TWO FlowLayoutPanels. Leaving
+                    // full screen must restore the selector to its original parent.
+                    var remoteDisplay=(RemoteScreen)typeof(Technician).GetField("screen",flags)!.GetValue(console)!;
+                    var picker=(ComboBox)typeof(Technician).GetField("monitorPicker",flags)!.GetValue(console)!;
+                    var originalParent=picker.Parent;
+                    var fullField=typeof(Technician).GetField("fullScreen",flags)!;
+                    var exitFull=typeof(Technician).GetMethod("ExitFullScreen",flags)!;
+                    using(var full=new FullScreenWindow(remoteDisplay,()=>exitFull.Invoke(console,null),()=>{},()=>Task.CompletedTask,picker))
+                    {
+                        fullField.SetValue(console,full);full.Show(console);Application.DoEvents();
+                        exitFull.Invoke(console,null);exitFull.Invoke(console,null);
+                        Check(full.IsDisposed&&fullField.GetValue(console) is null&&!remoteDisplay.IsDisposed&&picker.Parent==originalParent,"sair da tela cheia restaura monitor com duas barras e aceita repeticao");
+                    }
+                    var remoteField=typeof(Technician).GetField("client",flags)!;
+                    using(var failed=new RemoteClient(new Device(Guid.NewGuid().ToString(),"Falha de rede","Teste","127.0.0.1",17444,new string('A',64)),previewIdentity))
+                    {
+                        typeof(RemoteClient).GetProperty("Session")!.SetValue(failed,new RemoteSession(new string('A',64),previewIdentity.Public.Id,previewIdentity.Public.Name,DateTimeOffset.UtcNow,DateTimeOffset.UtcNow.AddHours(1)));
+                        remoteField.SetValue(console,failed);
+                        typeof(Technician).GetMethod("ToggleFullScreen",flags)!.Invoke(console,null);Application.DoEvents();
+                        var full=(FullScreenWindow)fullField.GetValue(console)!;
+                        remoteDisplay.Image=new Bitmap(10,10);
+                        var ending=(Task)typeof(Technician).GetMethod("Disconnect",flags)!.Invoke(console,null)!;
+                        Check(full.IsDisposed&&fullField.GetValue(console) is null&&remoteField.GetValue(console) is null&&remoteDisplay.Image is null&&picker.Parent==originalParent,"encerrar fecha tela cheia e limpa sessao antes da resposta da rede");
+                        var deadline=System.Diagnostics.Stopwatch.StartNew();
+                        while(!ending.IsCompleted&&deadline.Elapsed<TimeSpan.FromSeconds(5)){Application.DoEvents();Thread.Sleep(5);}
+                        Check(ending.IsCompleted,"encerramento de maquina indisponivel tem tempo limitado");
+                        if(ending.IsFaulted)_=ending.Exception; // The unavailable peer is intentional.
+                        typeof(Technician).GetMethod("Disconnect",flags)!.Invoke(console,null);
+                    }
                     var tabs=console.Controls.OfType<TabControl>().Single();tabs.SelectedIndex=2;Application.DoEvents();
                     IEnumerable<Control> Descendants(Control parent)=>parent.Controls.Cast<Control>().SelectMany(c=>new[]{c}.Concat(Descendants(c)));
                     Check(Descendants(console).OfType<Button>().Any(b=>b.Text=="Adicionar Raspberry/Linux"),"console oferece adicionar Raspberry/Linux pelo IP");
@@ -480,6 +510,48 @@ static class Tests
         try{Enrollment.VerifyDevice(proof,[admin.Public.Id],"desconhecido");throw new Exception("tecnico desconhecido aceito");}catch(InvalidDataException){Console.WriteLine("OK: descoberta respeita lista de tecnicos");}
         var modified=profile.Approval with{Permission=profile.Approval.Permission with{Sector="Outro setor"}};
         try{Enrollment.VerifyPermission(modified);throw new Exception("setor alterado aceito");}catch(InvalidDataException){Console.WriteLine("OK: autorizacao de setor adulterada rejeitada");}
+    }
+    static async Task DesktopServiceLive(string fixture,string configFile)
+    {
+        var config=Json.Read<AgentConfig>(configFile);
+        var metadata=Json.Read<TechnicianKey>(Path.Combine(fixture,"tecnico.sdetech"));
+        using var identity=TechnicianIdentity.FromPrivate(File.ReadAllBytes(Path.Combine(fixture,"private-test.pk8")),metadata.Name);
+        using var client=new RemoteClient(config.Device with{Host="127.0.0.1"},identity);
+        bool ready=false;
+        for(int i=0;i<30;i++)try{using var probe=await client.Request(HttpMethod.Get,"/info");ready=true;break;}catch{await Task.Delay(300);}
+        Check(ready,"agente do teste de servico responde");
+        await client.Start();
+        try
+        {
+            using(var health=await client.Request(HttpMethod.Get,"/health"))
+            using(var data=JsonDocument.Parse(await health.Content.ReadAsStringAsync()))
+                Check(data.RootElement.GetProperty("desktopHelper").GetBoolean(),"atendimento autorizado abre auxiliar SYSTEM na sessao interativa");
+            using(var frame=await client.Request(HttpMethod.Get,"/frame?monitor=primary"))
+            {var image=await frame.Content.ReadAsByteArrayAsync();Check(image.Length>1000&&image[0]==0xff&&frame.Headers.Contains("X-SDE-Monitors"),"auxiliar produz imagem real e coordenadas de monitor");}
+            using(var command=await client.Request(HttpMethod.Post,"/input",new InputCommand("keyUp",Key:16))){}
+            try{using var stale=await client.Request(HttpMethod.Post,"/input",new InputCommand("move",Layout:"antigo"));throw new Exception("layout antigo aceito pelo auxiliar");}
+            catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.Conflict){Console.WriteLine("OK: auxiliar rejeita entrada de monitor antigo");}
+            using(var chat=await client.Request(HttpMethod.Get,"/chat?after=0")){}
+            // An arbitrary local EXE cannot acquire a SYSTEM helper, even before
+            // sending a packet: the broker verifies the client's OS process ID.
+            using(var pipe=DesktopWire.Client(DesktopWire.BrokerPipe))
+            {
+                await pipe.ConnectAsync(3000);DesktopNative.VerifyServer(pipe);
+                var response=await Task.Run(()=>DesktopWire.Read<DesktopReply>(pipe,DesktopWire.MaxReply,TimeSpan.FromSeconds(5)));
+                Check(response.Error!=""&&response.WorkerPipe=="","servico recusa processo local diferente do Cliente instalado");
+            }
+        }
+        finally{await client.Stop();}
+        using(var health=await client.Request(HttpMethod.Get,"/health"))
+        using(var data=JsonDocument.Parse(await health.Content.ReadAsStringAsync()))
+            Check(!data.RootElement.GetProperty("desktopHelper").GetBoolean()&&!data.RootElement.GetProperty("activeSession").GetBoolean(),"encerramento revoga auxiliar e sessao");
+        await Task.Delay(300);await client.Start();
+        try
+        {
+            using var frame=await client.Request(HttpMethod.Get,"/frame");
+            Check(frame.IsSuccessStatusCode,"novo atendimento pode reabrir auxiliar depois de encerrar");
+        }
+        finally{await client.Stop();}
     }
     static async Task Live(string fixture,string hostFile)
     {

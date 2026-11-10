@@ -1,9 +1,13 @@
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
-foreach ($role in @('Agent','Technician')) {
+foreach ($role in @('Agent','Technician','Desktop')) {
  dotnet publish "$root\src\SdeSuporte.$role.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$root\dist\$role"
  if ($LASTEXITCODE -ne 0) { throw "Falha ao compilar $role" }
 }
+
+# Keep the SYSTEM service separate from the employee process: the updater waits
+# for employee/technician apps, not for this automatically started service.
+Copy-Item "$root\dist\Desktop\SDE-Suporte-Desktop.exe" "$root\dist\Agent" -Force
 
 dotnet publish "$root\bootstrapper\SdeSuporte.Bootstrapper.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$root\dist\Bootstrapper"
 if ($LASTEXITCODE -ne 0) { throw 'Falha ao compilar instalador do cliente.' }
