@@ -64,7 +64,7 @@ def main():
         release = call("POST", "/releases", value={
             "tag_name": tag, "target_commitish": sha, "draft": True,
             "name": "SDE Suporte " + version + " — UAC remoto e encerramento da tela cheia",
-            "body": "Permite conectar ao Cliente com data/hora atrasada usando o horário do agente nas solicitações assinadas. Preserva identidade do certificado, assinatura da equipe, proteção contra repetição e autorização de acesso. Atualize Técnico e Cliente. Não altera o relógio do Windows. Autorizações da equipe expiradas continuam bloqueadas.",
+            "body": "Adiciona o serviço SDE-Suporte-Desktop para visualizar e operar pedidos UAC durante atendimento autorizado, mantendo a exigência de senha administrativa. Corrige a saída da tela cheia ao encerrar a sessão. Atualize Técnico e Cliente; o serviço requer instalação no caminho padrão C:\\Program Files\\SDE-Suporte. Testes automatizados Windows aprovados; UAC real com conta padrão, bloqueio e escalas de monitor ainda precisam de validação na SDE. Atualização automática autorizada pelo responsável.",
         })
     if release["target_commitish"] != sha:
         raise ValueError("Version already belongs to a different source commit; increment it")
