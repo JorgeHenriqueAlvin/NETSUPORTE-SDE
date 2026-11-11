@@ -4,6 +4,13 @@ static class Program
 {
     [STAThread] static void Main(string[] args)
     {
+#if AGENT_ONLY
+        // Service/worker threads must not create GUI windows before switching desktops.
+        if(args.Length==1&&args[0]=="--desktop-service"){DesktopService.Start();return;}
+        if(args.Length==3&&args[0]=="--desktop-worker"&&int.TryParse(args[2],out var agentPid))
+        {try{DesktopService.Worker(args[1],agentPid);}catch(Exception e)when(e is EndOfStreamException or OperationCanceledException){}catch(Exception e){DesktopService.Failure("worker_failed",e);}return;}
+#endif
+#if !DESKTOP_SERVICE
         ApplicationConfiguration.Initialize();
         try
         {
@@ -40,6 +47,7 @@ static class Program
         catch(Exception e){
             try{var logs=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"SdeSuporte","logs");Directory.CreateDirectory(logs);File.WriteAllText(Path.Combine(logs,"startup-error.txt"),DateTimeOffset.Now+"\n"+e);}catch{}
             MessageBox.Show("Não foi possível iniciar.\n"+e.Message,"SDE Suporte",MessageBoxButtons.OK,MessageBoxIcon.Error);}
+#endif
     }
 
     static void WaitForStartupUpdate()

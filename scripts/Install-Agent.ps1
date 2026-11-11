@@ -10,7 +10,8 @@ param(
  [string]$InstallDirectory = "$env:ProgramFiles\SDE-Suporte\Agent",
  [string]$BinaryDirectory = '',
  [string]$ConnectionHost = '',
- [switch]$NoStartup
+ [switch]$NoStartup,
+ [switch]$DeferDesktopService
 )
 $ErrorActionPreference='Stop'
 if($PSVersionTable.PSEdition -eq 'Desktop') {
@@ -39,6 +40,8 @@ if ([Uri]::CheckHostName($ConnectionHost) -eq 'Unknown' -or $ConnectionHost -mat
 New-Item -ItemType Directory -Path $InstallDirectory -Force | Out-Null
 & icacls.exe $InstallDirectory /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel proteger a pasta do agente.' }
+$desktopService=Join-Path $PSScriptRoot 'Configure-DesktopService.ps1'
+if(Test-Path -LiteralPath $desktopService){& $desktopService -InstallDirectory $InstallDirectory -Stop}
 $exe=Join-Path $InstallDirectory 'SDE-Suporte-Cliente.exe'
 Get-CimInstance Win32_Process -Filter "Name='SDE-Suporte-Cliente.exe'" | Where-Object ExecutablePath -eq $exe | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 if ($BinaryDirectory -and [IO.Path]::GetFullPath($BinaryDirectory).TrimEnd('\') -ine [IO.Path]::GetFullPath($InstallDirectory).TrimEnd('\')) { Copy-Item -Path "$BinaryDirectory\*" -Destination $InstallDirectory -Recurse -Force }
@@ -74,5 +77,6 @@ if (-not $NoStartup) {
  $startup=(Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name SdeSuporte).SdeSuporte
  if($startup -ne "`"$exe`""){throw 'Nao foi possivel ativar o inicio automatico do Cliente no Windows.'}
 }
+if(-not $DeferDesktopService -and (Test-Path -LiteralPath $desktopService)){& $desktopService -InstallDirectory $InstallDirectory}
 $sha.Dispose()
 Write-Host "Agente configurado. Arquivo do computador: $ExportPath"

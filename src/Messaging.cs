@@ -107,8 +107,10 @@ sealed class EmployeeAnnouncements:Form
 
 sealed class FullScreenWindow:Form
 {
+    readonly Action exitFullScreen;
     public FullScreenWindow(Control screen,Action exit,Action chat,Func<Task> disconnect,Control? monitorSelector=null)
     {
+        exitFullScreen=exit;
         Text="SDE Suporte — tela cheia";FormBorderStyle=FormBorderStyle.None;StartPosition=FormStartPosition.Manual;
         Bounds=Screen.FromControl(screen).Bounds;WindowState=FormWindowState.Maximized;BackColor=Color.Black;
         var bar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=56,Padding=new Padding(6),BackColor=Color.White};
@@ -117,4 +119,10 @@ sealed class FullScreenWindow:Form
         var end=new Button{AutoSize=true,Text="Encerrar atendimento"};end.Click+=async(_,_)=>await disconnect();
         bar.Controls.AddRange([back,messages,end]);if(monitorSelector is not null)bar.Controls.Add(monitorSelector);Controls.Add(screen);Controls.Add(bar);Premium.Apply(bar);
     }
+    protected override bool ProcessCmdKey(ref Message msg,Keys keyData)
+    {
+        if(keyData==Keys.F11){exitFullScreen();return true;}
+        return base.ProcessCmdKey(ref msg,keyData);
+    }
+
 }

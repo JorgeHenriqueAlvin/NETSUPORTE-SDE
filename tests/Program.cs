@@ -48,6 +48,7 @@ static class Tests
                 }finally{Directory.Delete(scratch,true);}return 0;
             }
             if(args[0]=="ui"){MessagingTests();return 0;}
+            if(args[0]=="desktop-service"){await DesktopServiceLive(args[1],args[2]);return 0;}
             if(args[0] is "prepare" or "prepare-team")
             {
                 Directory.CreateDirectory(args[1]);
@@ -134,6 +135,35 @@ static class Tests
                     var fixtures=(List<Device>)typeof(Technician).GetField("devices",flags)!.GetValue(console)!;fixtures.Clear();
                     var presence=(Dictionary<string,DateTimeOffset>)typeof(Technician).GetField("online",flags)!.GetValue(console)!;
                     for(int i=0;i<3;i++){var d=new Device(Guid.NewGuid().ToString(),"Cliente "+i,"Teste","127.0.0.1",17443,new string('0',64));fixtures.Add(d);if(i<2)presence[d.Id]=DateTimeOffset.UtcNow;}
+                    // Regression: the real page has TWO FlowLayoutPanels. Leaving
+                    // full screen must restore the selector to its original parent.
+                    var remoteDisplay=(RemoteScreen)typeof(Technician).GetField("screen",flags)!.GetValue(console)!;
+                    var picker=(ComboBox)typeof(Technician).GetField("monitorPicker",flags)!.GetValue(console)!;
+                    var originalParent=picker.Parent;
+                    var fullField=typeof(Technician).GetField("fullScreen",flags)!;
+                    var exitFull=typeof(Technician).GetMethod("ExitFullScreen",flags)!;
+                    using(var full=new FullScreenWindow(remoteDisplay,()=>exitFull.Invoke(console,null),()=>{},()=>Task.CompletedTask,picker))
+                    {
+                        fullField.SetValue(console,full);full.Show(console);Application.DoEvents();
+                        exitFull.Invoke(console,null);exitFull.Invoke(console,null);
+                        Check(full.IsDisposed&&fullField.GetValue(console) is null&&!remoteDisplay.IsDisposed&&picker.Parent==originalParent,"sair da tela cheia restaura monitor com duas barras e aceita repeticao");
+                    }
+                    var remoteField=typeof(Technician).GetField("client",flags)!;
+                    using(var failed=new RemoteClient(new Device(Guid.NewGuid().ToString(),"Falha de rede","Teste","127.0.0.1",17444,new string('A',64)),previewIdentity))
+                    {
+                        typeof(RemoteClient).GetProperty("Session")!.SetValue(failed,new RemoteSession(new string('A',64),previewIdentity.Public.Id,previewIdentity.Public.Name,DateTimeOffset.UtcNow,DateTimeOffset.UtcNow.AddHours(1)));
+                        remoteField.SetValue(console,failed);
+                        typeof(Technician).GetMethod("ToggleFullScreen",flags)!.Invoke(console,null);Application.DoEvents();
+                        var full=(FullScreenWindow)fullField.GetValue(console)!;
+                        remoteDisplay.Image=new Bitmap(10,10);
+                        var ending=(Task)typeof(Technician).GetMethod("Disconnect",flags)!.Invoke(console,null)!;
+                        Check(full.IsDisposed&&fullField.GetValue(console) is null&&remoteField.GetValue(console) is null&&remoteDisplay.Image is null&&picker.Parent==originalParent,"encerrar fecha tela cheia e limpa sessao antes da resposta da rede");
+                        var deadline=System.Diagnostics.Stopwatch.StartNew();
+                        while(!ending.IsCompleted&&deadline.Elapsed<TimeSpan.FromSeconds(5)){Application.DoEvents();Thread.Sleep(5);}
+                        Check(ending.IsCompleted,"encerramento de maquina indisponivel tem tempo limitado");
+                        if(ending.IsFaulted)_=ending.Exception; // The unavailable peer is intentional.
+                        typeof(Technician).GetMethod("Disconnect",flags)!.Invoke(console,null);
+                    }
                     var tabs=console.Controls.OfType<TabControl>().Single();tabs.SelectedIndex=2;Application.DoEvents();
                     IEnumerable<Control> Descendants(Control parent)=>parent.Controls.Cast<Control>().SelectMany(c=>new[]{c}.Concat(Descendants(c)));
                     Check(Descendants(console).OfType<Button>().Any(b=>b.Text=="Adicionar Raspberry/Linux"),"console oferece adicionar Raspberry/Linux pelo IP");
@@ -481,6 +511,63 @@ static class Tests
         var modified=profile.Approval with{Permission=profile.Approval.Permission with{Sector="Outro setor"}};
         try{Enrollment.VerifyPermission(modified);throw new Exception("setor alterado aceito");}catch(InvalidDataException){Console.WriteLine("OK: autorizacao de setor adulterada rejeitada");}
     }
+    static async Task DesktopServiceLive(string fixture,string configFile)
+    {
+        var config=Json.Read<AgentConfig>(configFile);
+        var metadata=Json.Read<TechnicianKey>(Path.Combine(fixture,"tecnico.sdetech"));
+        using var identity=TechnicianIdentity.FromPrivate(File.ReadAllBytes(Path.Combine(fixture,"private-test.pk8")),metadata.Name);
+        using var client=new RemoteClient(config.Device with{Host="127.0.0.1"},identity);
+        bool ready=false;
+        for(int i=0;i<30;i++)try{using var probe=await client.Request(HttpMethod.Get,"/info");ready=true;break;}catch{await Task.Delay(300);}
+        Check(ready,"agente do teste de servico responde");
+        await client.Start();
+        try
+        {
+            using(var health=await client.Request(HttpMethod.Get,"/health"))
+            using(var data=JsonDocument.Parse(await health.Content.ReadAsStringAsync()))
+                Check(data.RootElement.GetProperty("desktopHelper").GetBoolean(),"atendimento autorizado abre auxiliar SYSTEM na sessao interativa");
+            using(var frame=await client.Request(HttpMethod.Get,"/frame?monitor=primary"))
+            {var image=await frame.Content.ReadAsByteArrayAsync();Check(image.Length>1000&&image[0]==0xff&&frame.Headers.Contains("X-SDE-Monitors"),"auxiliar produz imagem real e coordenadas de monitor");}
+            using(var command=await client.Request(HttpMethod.Post,"/input",new InputCommand("keyUp",Key:16))){}
+            var targetReady=new TaskCompletionSource<(Form,TextBox)>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var targetThread=new Thread(()=>{
+                var form=new Form{Text="SDE - entrada pelo auxiliar",Width=500,Height=200,TopMost=true};
+                var field=new TextBox{Dock=DockStyle.Fill};form.Controls.Add(field);
+                form.Shown+=(_,_)=>targetReady.TrySetResult((form,field));Application.Run(form);
+            });targetThread.SetApartmentState(ApartmentState.STA);targetThread.Start();
+            var (target,field)=await targetReady.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            try
+            {
+                await FocusTarget(target,field);
+                using var typed=await client.Request(HttpMethod.Post,"/input",new InputCommand("text",Text:"SDE-SYSTEM-123"));
+                await Task.Delay(200);
+                Check((string)field.Invoke(()=>field.Text)=="SDE-SYSTEM-123","texto assinado do auxiliar SYSTEM chega ao aplicativo de teste");
+            }
+            finally{target.Invoke(()=>target.Close());targetThread.Join(3000);}
+            try{using var stale=await client.Request(HttpMethod.Post,"/input",new InputCommand("move",Layout:"antigo"));throw new Exception("layout antigo aceito pelo auxiliar");}
+            catch(HttpRequestException e)when(e.StatusCode==HttpStatusCode.Conflict){Console.WriteLine("OK: auxiliar rejeita entrada de monitor antigo");}
+            using(var chat=await client.Request(HttpMethod.Get,"/chat?after=0")){}
+            // An arbitrary local EXE cannot acquire a SYSTEM helper, even before
+            // sending a packet: the broker verifies the client's OS process ID.
+            using(var pipe=DesktopWire.Client(DesktopWire.BrokerPipe))
+            {
+                await pipe.ConnectAsync(3000);DesktopNative.VerifyServer(pipe);
+                var response=await Task.Run(()=>DesktopWire.Read<DesktopReply>(pipe,DesktopWire.MaxReply,TimeSpan.FromSeconds(5)));
+                Check(response.Error!=""&&response.WorkerPipe=="","servico recusa processo local diferente do Cliente instalado");
+            }
+        }
+        finally{await client.Stop();}
+        using(var health=await client.Request(HttpMethod.Get,"/health"))
+        using(var data=JsonDocument.Parse(await health.Content.ReadAsStringAsync()))
+            Check(!data.RootElement.GetProperty("desktopHelper").GetBoolean()&&!data.RootElement.GetProperty("activeSession").GetBoolean(),"encerramento revoga auxiliar e sessao");
+        await Task.Delay(300);await client.Start();
+        try
+        {
+            using var frame=await client.Request(HttpMethod.Get,"/frame");
+            Check(frame.IsSuccessStatusCode,"novo atendimento pode reabrir auxiliar depois de encerrar");
+        }
+        finally{await client.Stop();}
+    }
     static async Task Live(string fixture,string hostFile)
     {
         var expected=Json.Read<AgentConfig>(hostFile).Device;expected.Validate();
@@ -533,7 +620,7 @@ static class Tests
                 using var removed=await client.Request(HttpMethod.Get,"/frame?monitor=monitor-removido");
                 Check(removed.Headers.Contains("X-SDE-Monitors"),"monitor removido retorna automaticamente ao principal");
             }
-            form.Invoke(()=>{form.Activate();textbox.Focus();SetForegroundWindow(form.Handle);});await Task.Delay(500);
+            await FocusTarget(form,textbox);
             IntPtr handle=(IntPtr)form.Invoke(()=>form.Handle);
             Check(GetForegroundWindow()==handle,"alvo exclusivo do teste em primeiro plano");
             using(var command=await client.Request(HttpMethod.Post,"/input",new InputCommand("text",Text:"SDE-TEST-123"))){}
@@ -558,6 +645,28 @@ static class Tests
         }
         finally{try{await client.Stop();}catch{}form.Invoke(()=>form.Close());thread.Join(5000);}
     }
+    static async Task FocusTarget(Form form,TextBox field)
+    {
+        var handle=(IntPtr)form.Invoke(()=>form.Handle);
+        for(int attempt=0;attempt<10;attempt++)
+        {
+            form.Invoke(()=>{
+                // Earlier input tests may leave the foreground lock associated
+                // with a helper that already exited. Attach only the test UI's
+                // input queue while activating the explicit test target.
+                uint current=GetCurrentThreadId(),foreground=GetWindowThreadProcessId(GetForegroundWindow(),out _);
+                bool attached=foreground!=0&&foreground!=current&&AttachThreadInput(current,foreground,true);
+                try{form.Activate();field.Focus();SetForegroundWindow(handle);}
+                finally{if(attached)AttachThreadInput(current,foreground,false);}
+            });
+            await Task.Delay(100);
+            if(GetForegroundWindow()==handle)return;
+        }
+        Check(false,"janela de teste recebe foco antes da digitacao");
+    }
+    [DllImport("kernel32.dll")]static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")]static extern uint GetWindowThreadProcessId(IntPtr window,out uint process);
+    [DllImport("user32.dll")]static extern bool AttachThreadInput(uint first,uint second,bool attach);
     delegate bool WindowCallback(IntPtr window,IntPtr parameter);
     [DllImport("user32.dll",CharSet=CharSet.Unicode)]static extern IntPtr FindWindow(string? className,string? windowName);
     [DllImport("user32.dll")]static extern bool EnumChildWindows(IntPtr window,WindowCallback callback,IntPtr parameter);

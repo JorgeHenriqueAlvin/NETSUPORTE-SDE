@@ -19,7 +19,11 @@ static class Native
         try {var name=new StringBuilder(256);return GetUserObjectInformation(desktop,2,name,512,out _)&&name.ToString()=="Default";}
         finally{CloseDesktop(desktop);}
     }
-    static void Send(params INPUT[] values) {if(SendInput((uint)values.Length,values,Marshal.SizeOf<INPUT>())!=values.Length)throw new InvalidOperationException("O Windows bloqueou a entrada. Verifique se o programa remoto está elevado.");}
+    static void Send(params INPUT[] values)
+    {
+        if(SendInput((uint)values.Length,values,Marshal.SizeOf<INPUT>())!=values.Length)
+        {int code=Marshal.GetLastWin32Error();throw new InvalidOperationException($"O Windows bloqueou a entrada (Win32 {code}). Verifique o desktop ativo e os privilégios do Cliente.");}
+    }
     static INPUT Key(ushort key,ushort scan,uint flags)=>new(){type=1,data=new(){key=new(){vk=key,scan=scan,flags=flags}}};
     static INPUT Mouse(uint flags,int delta=0)=>new(){data=new(){mouse=new(){flags=flags,mouseData=unchecked((uint)delta)}}};
     public static void Apply(InputCommand c)

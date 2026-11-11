@@ -26,9 +26,15 @@ try {
  New-Item -ItemType Directory -Path $tools -Force | Out-Null
  Copy-Item "$PayloadDirectory\Uninstall-Agent.ps1" $tools -Force
  if(-not $BinaryDirectory){$BinaryDirectory=Join-Path $PayloadDirectory 'Agent'}
- & "$PayloadDirectory\Install-Agent.ps1" -Sector $permission.sector -TechnicianFiles $files -ExportPath (Join-Path $PayloadDirectory 'computer.sdehost') -InstallDirectory $directory -BinaryDirectory $BinaryDirectory -TechnicianNetworks @($networks | Select-Object -Unique) -Port $Port -NoStartup:$NoStartup -RequireConsent $RequireConsent
+ & "$PayloadDirectory\Install-Agent.ps1" -Sector $permission.sector -TechnicianFiles $files -ExportPath (Join-Path $PayloadDirectory 'computer.sdehost') -InstallDirectory $directory -BinaryDirectory $BinaryDirectory -TechnicianNetworks @($networks | Select-Object -Unique) -Port $Port -NoStartup:$NoStartup -RequireConsent $RequireConsent -DeferDesktopService
  $seal=Start-Process "$directory\SDE-Suporte-Cliente.exe" -ArgumentList @('--seal',"`"$DeploymentProfile`"") -PassThru -Wait
  if($seal.ExitCode -ne 0) { throw 'Nao foi possivel validar a autorizacao do instalador.' }
+ $desktopService=Join-Path $PayloadDirectory 'Configure-DesktopService.ps1'
+ if(Test-Path -LiteralPath $desktopService) {
+  Copy-Item -LiteralPath $desktopService -Destination $tools -Force
+  # Register only after sealing so team-wide technicians are verified independently.
+  & $desktopService -InstallDirectory $directory
+ }
  Get-NetFirewallRule -Name SDE-Suporte-Discover-7446 -ErrorAction SilentlyContinue | Remove-NetFirewallRule
  New-NetFirewallRule -Name SDE-Suporte-Discover-7446 -DisplayName 'SDE Suporte - descoberta automatica' -Direction Inbound -Action Allow -Protocol UDP -LocalPort 7446 -Profile Domain,Private -RemoteAddress @($networks | Select-Object -Unique) | Out-Null
  # The older personalized bootstrapper registered a separate uninstaller. When

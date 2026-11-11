@@ -1,3 +1,13 @@
+# UAC remoto e saída da tela cheia — 0.13.0
+
+O Cliente Windows passa a incluir o serviço **SDE-Suporte-Desktop**, executado como SYSTEM. Durante um atendimento autorizado, ele abre um auxiliar na sessão do funcionário para capturar e controlar a área de trabalho ativa, incluindo o pedido de senha UAC e aplicativos elevados. O UAC continua habilitado e exige uma credencial administrativa válida.
+
+Atualize **Cliente e Técnico**. O serviço é registrado automaticamente apenas no caminho padrão `C:\Program Files\SDE-Suporte\Agent`; instalações portáteis ou em diretórios personalizados mantêm o atendimento comum, sem UAC remoto. O funcionário precisa estar conectado e desbloqueado para iniciar. Bloqueio, logoff, perda da conexão, expiração ou encerramento revogam o auxiliar. O serviço não oferece acesso à tela de login.
+
+Ao encerrar, a tela cheia fecha imediatamente e a imagem remota é limpa, mesmo se a máquina não responder. F11 também funciona quando o foco está na barra de controles.
+
+Consulte [arquitetura, testes e validação UAC](docs/UAC-0.13.0.md). A captura da tela protegida real precisa ser validada no piloto Windows antes de distribuir esta versão.
+
 ## Revisão de qualidade 0.12.15
 
 Melhorias de fluidez da lista, acessibilidade, cancelamento HTTP e persistência atômica. Consulte [mudanças e limites](docs/QUALIDADE-0.12.15.md).
@@ -88,7 +98,7 @@ A descoberta HTTPS transporta apenas identificação pública assinada. Antes de
 
 Implementado: lista automática, varredura por IP, filtro, estado de conexão, visualização da área de trabalho, mouse, arraste, roda, teclado, envio de texto, aviso de técnico, tela cheia, chat bidirecional, avisos globais autenticados e logs locais de início/fim/erros/recebimento de mensagens. Existe uma sessão por computador, com expiração e encerramento ao bloquear ou desconectar a área de trabalho.
 
-O agente funciona **na sessão do funcionário**. É necessário estar conectado ao Windows e com a área de trabalho desbloqueada. Não controla login, tela bloqueada ou a área protegida do UAC; aplicações elevadas podem recusar entrada de um agente sem elevação. Não é um serviço do Windows. Um usuário local pode encerrá-lo pelo Gerenciador de Tarefas.
+O agente visível funciona **na sessão do funcionário**. A versão 0.13.0 acrescenta um serviço auxiliar SYSTEM para o UAC, instalado no caminho padrão. A autorização do atendimento continua no agente visível. Sem o serviço, o desktop protegido permanece indisponível. Login e tela bloqueada não são controlados. Um usuário local pode encerrar o agente visível pelo Gerenciador de Tarefas, revogando seu auxiliar.
 
 Ainda não há transferência de arquivos, impressão remota ou gravação de sessão. O inventário cobre os campos disponíveis no sistema. A coleta de auditoria mantém eventos recentes no console, sem servidor central. Não há equivalência integral ao NetSupport nem assinatura Authenticode dos instaladores.
 

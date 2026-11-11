@@ -1,4 +1,4 @@
-#define AppVersion "0.12.21"
+#define AppVersion "0.13.0"
 #ifndef SetupRole
   #define SetupRole "combined"
 #endif
@@ -62,6 +62,7 @@ Source: "..\release\SDE-Suporte-Cliente-Instalar.exe.sha256"; DestDir: "{app}\Pa
 #if SetupRole != "technician"
 Source: "..\dist\Agent\*"; DestDir: "{app}\Agent"; Flags: ignoreversion recursesubdirs createallsubdirs{#ClientComponent}
 Source: "..\scripts\Configure-AccessPolicy.ps1"; DestDir: "{app}\scripts"{#ClientComponent}
+Source: "..\scripts\Configure-DesktopService.ps1"; DestDir: "{app}\scripts"{#ClientComponent}
 Source: "..\scripts\Install-Agent.ps1"; DestDir: "{app}\scripts"{#ClientComponent}
 Source: "..\scripts\Uninstall-Agent.ps1"; DestDir: "{app}\scripts"{#ClientComponent}
 Source: "..\scripts\AutoConfigure-Agent.ps1"; DestDir: "{app}\scripts"{#ClientComponent}
@@ -88,6 +89,7 @@ Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile
 Type: files; Name: "{app}\Agent\agent.json"
 Type: files; Name: "{app}\Agent\access-policy.json"
 Type: files; Name: "{app}\Agent\setup-error.txt"
+Type: files; Name: "{app}\Agent\desktop-service.jsonl"
 Type: files; Name: "{app}\scripts\computer.sdehost"
 Type: files; Name: "{app}\scripts\*.sdetech"
 Type: files; Name: "{app}\scripts\agent-setup.log"
@@ -146,6 +148,12 @@ begin
 #endif
     Exit;
   end;
+#if SetupRole != "technician"
+  if CurStep = ssInstall then begin
+    if FileExists(ExpandConstant('{app}\scripts\Configure-DesktopService.ps1')) then
+      RunConfiguration(ExpandConstant('-File "{app}\scripts\Configure-DesktopService.ps1" -InstallDirectory "{app}\Agent" -Stop'));
+  end;
+#endif
   if CurStep <> ssPostInstall then Exit;
   RunConfiguration(ExpandConstant('-File "{app}\scripts\Update-Sde.ps1" -Register'));
 #if SetupRole == "technician"
