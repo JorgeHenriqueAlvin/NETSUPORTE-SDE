@@ -87,6 +87,10 @@ sealed class Technician:Form
     readonly CancellationTokenSource lifetime=new();
     CancellationTokenSource? scanning;
     bool dirty,searchingAgents;
+    readonly System.Windows.Forms.Timer sharedClock=new(){Interval=30000};
+    string sharedDirectory="",sharedPublisher=Guid.NewGuid().ToString();
+    bool sharing;
+    string SharedSettingsPath=>Path.Combine(folder,"shared-computers.json");
     void RequestListRefresh(){if(!closing&&!IsDisposed&&!listRefresh.Enabled)listRefresh.Start();}
     RemoteClient? client;
     bool loading,closing;
@@ -104,6 +108,8 @@ sealed class Technician:Form
         Button Add(string label,Func<Task> action){var b=new Button{Text=label,AutoSize=true};b.Click+=async(_,_)=>{if(!b.Enabled)return;b.Enabled=false;try{await Safe(action);}finally{if(!b.IsDisposed)b.Enabled=true;}};toolbar.Controls.Add(b);return b;}
         Add("Buscar agentes instalados",async()=>{search.Clear();await SearchAgents();});
         Add("Varredura de IP",ChooseScan);
+        Add("Compartilhar máquinas",ConfigureSharedComputers);
+        Add("Importar lista do Técnico antigo",()=>{ImportLegacyList();return Task.CompletedTask;});
         Add("Configurações da máquina",MachineDetails);
         Add("Editar identificação",()=>{EditMetadata();return Task.CompletedTask;});
         Add("Buscar Raspberry Pi",FindLinuxAgents);
@@ -208,9 +214,17 @@ sealed class Technician:Form
             using var separator=new Pen(Premium.Border);e.Graphics.DrawLine(separator,e.Bounds.Left,e.Bounds.Bottom-1,e.Bounds.Right,e.Bounds.Bottom-1);e.DrawFocusRectangle();
         };
         Filter("");status.Text=$"Técnico: {identity.Public.Name} | Instale o agente nos funcionários. As máquinas da equipe aparecem automaticamente.";
+        if(File.Exists(SharedSettingsPath))
+        {
+            try{var config=Json.Read<string[]>(SharedSettingsPath);if(config.Length==2&&Guid.TryParse(config[1],out _)){sharedDirectory=config[0];sharedPublisher=config[1];}}
+            catch{status.Text="Configure novamente a pasta compartilhada de máquinas.";}
+        }
+        sharedClock.Tick+=async(_,_)=>await SyncSharedComputers();
+        if(startBackgroundServices)sharedClock.Start();
         Shown+=async(_,_)=>{
             if(!startBackgroundServices)return;
             try{discovery=new ConsoleDiscovery(identity,()=>authorities.Select(a=>a.Id).ToArray(),QueueDiscovered);}catch(Exception e){scanStatus.Text="Descoberta UDP indisponível: "+e.Message;}
+            await SyncSharedComputers();
             await Safe(SearchAgents);
         };
         scanClock.Tick+=async(_,_)=>{if(scanning is null&&!closing)await Safe(ScanLocal);};if(startBackgroundServices)scanClock.Start();
@@ -228,7 +242,7 @@ sealed class Technician:Form
         screen.KeyUp+=async(_,e)=>{e.SuppressKeyPress=true;if(e.KeyCode==Keys.F11)return;if(held.Remove(e.KeyValue))await Safe(()=>Input(new("keyUp",Key:e.KeyValue)));};
         screen.LostFocus+=async(_,_)=>{foreach(int k in held.ToArray())await Safe(()=>Input(new("keyUp",Key:k)));held.Clear();};
         FormClosing+=async(_,e)=>{if(closing)return;e.Cancel=true;closing=true;lifetime.Cancel();scanning?.Cancel();Enabled=false;try{await Disconnect();}catch{}finally{Close();}};
-        FormClosed+=(_,_)=>{discovery?.Dispose();presence.Dispose();listRefresh.Dispose();scanClock.Dispose();chatClock.Dispose();advanced.Dispose();if(dirty)SaveDevices();timer.Dispose();client?.Dispose();identity.Dispose();screen.Image?.Dispose();noticePreview.Image?.Dispose();};
+        FormClosed+=(_,_)=>{sharedClock.Dispose();discovery?.Dispose();presence.Dispose();listRefresh.Dispose();scanClock.Dispose();chatClock.Dispose();advanced.Dispose();if(dirty)SaveDevices();timer.Dispose();client?.Dispose();identity.Dispose();screen.Image?.Dispose();noticePreview.Image?.Dispose();};
     }
     TabPage UpdatesPage()
     {
@@ -466,6 +480,55 @@ sealed class Technician:Form
         if(list.SelectedItem is not Device d)throw new Exception("Selecione o computador.");
         var address=NameDialog.Ask("Endereço na rede","IP ou nome do computador",d.Host);if(address is null)return;
         var updated=d with{Host=address.Trim()};updated.Validate();devices.RemoveAll(x=>x.Id==d.Id);devices.Add(updated);SaveDevices();Filter("");
+    }
+    async Task ConfigureSharedComputers()
+    {
+        var path=NameDialog.Ask("Compartilhar máquinas entre técnicos","Mesma pasta de rede da TI em todos os técnicos (vazio não altera)",sharedDirectory);
+        if(path is null)return;
+        if(!Path.IsPathFullyQualified(path))throw new ArgumentException("Informe o caminho completo da pasta, por exemplo uma pasta de rede da TI.");
+        if(MessageBox.Show(this,"Esta pasta será uma fonte confiável do cadastro público das máquinas. Use uma pasta restrita à TI.\n\nA lista será sincronizada a cada 30 segundos. Ela não concede acesso a clientes de outra equipe.\n\n"+path,"Compartilhar cadastro",MessageBoxButtons.OKCancel,MessageBoxIcon.Information)!=DialogResult.OK)return;
+        sharedDirectory=path;
+        Json.Write(SharedSettingsPath,new[]{sharedDirectory,sharedPublisher});
+        await SyncSharedComputers();
+    }
+    async Task SyncSharedComputers()
+    {
+        if(sharing||closing||string.IsNullOrWhiteSpace(sharedDirectory))return;
+        sharing=true;
+        try
+        {
+            var snapshot=devices.ToArray();var directory=sharedDirectory;var publisher=sharedPublisher;var team=TeamAccess.Root.Id;
+            var incoming=await Task.Run(()=>SharedComputers.Exchange(directory,team,publisher,snapshot));
+            if(closing||IsDisposed||sharedDirectory!=directory)return;
+            int added=0,conflicts=0;
+            foreach(var device in incoming)
+            {
+                var existing=devices.FirstOrDefault(d=>d.Id==device.Id);
+                if(existing is not null){if(existing.CertificateSha256!=device.CertificateSha256)conflicts++;continue;}
+                if(devices.Count>=SharedComputers.Limit)break;
+                devices.Add(device);added++;
+            }
+            if(added>0){SaveDevices();Filter(search.Text);}
+            scanStatus.Text=$"Lista compartilhada sincronizada: {added} novas • {conflicts} conflitos de certificado. Presença depende de comunicação com cada Cliente.";
+        }
+        catch(Exception e)when(e is IOException or UnauthorizedAccessException or InvalidDataException or JsonException)
+        {if(!closing&&!IsDisposed)scanStatus.Text="Lista local preservada; sincronização indisponível: "+e.Message;}
+        finally{sharing=false;}
+    }
+    void ImportLegacyList()
+    {
+        using var dialog=new OpenFileDialog{Title="Selecione computers.json do Técnico antigo",Filter="Lista de máquinas (computers.json)|computers.json|JSON (*.json)|*.json"};
+        if(dialog.ShowDialog()!=DialogResult.OK)return;
+        var incoming=SharedComputers.Read(dialog.FileName);
+        if(MessageBox.Show(this,$"Adicionar o cadastro de {incoming.Length} máquinas?\n\nIsso copia somente a lista pública. Clientes da equipe antiga exigem migração para o novo Cliente; nenhuma autorização pessoal será copiada.","Importar lista antiga",MessageBoxButtons.OKCancel,MessageBoxIcon.Information)!=DialogResult.OK)return;
+        int added=0;
+        foreach(var device in incoming)
+        {
+            if(devices.Any(d=>d.Id==device.Id)||devices.Count>=SharedComputers.Limit)continue;
+            devices.Add(device);added++;
+        }
+        SaveDevices();onlyOnline.Checked=false;Filter(search.Text);
+        status.Text=$"{added} máquinas adicionadas. Migre os Clientes de outra equipe para restabelecer a conexão.";
     }
     void SaveDevices()=>Json.Write(Path.Combine(folder,"computers.json"),devices);
     void Filter(string query)
@@ -709,4 +772,5 @@ sealed class NameDialog:Form
         return form.ShowDialog()==DialogResult.OK&&!string.IsNullOrWhiteSpace(input.Text)?input.Text.Trim():null;
     }
 }
+
 
