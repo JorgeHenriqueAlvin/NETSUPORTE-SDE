@@ -12,7 +12,7 @@ public static class NetworkInventory
 {
     public static async Task<bool> Port(IPAddress address,int port,CancellationToken cancellation)
     {
-        using var socket=new TcpClient();using var timeout=CancellationTokenSource.CreateLinkedTokenSource(cancellation);timeout.CancelAfter(600);
+        using var socket=new TcpClient();using var timeout=CancellationTokenSource.CreateLinkedTokenSource(cancellation);timeout.CancelAfter(1500);
         try{await socket.ConnectAsync(address,port,timeout.Token);return true;}catch(Exception)when(!cancellation.IsCancellationRequested){return false;}
     }
     public static async Task<NetworkHost?> Probe(IPAddress address,CancellationToken cancellation)
@@ -63,6 +63,7 @@ sealed class DeploymentPanel:UserControl
     readonly Button export=new(){Text="Exportar inventário CSV",AutoSize=true};
     CancellationTokenSource? scan;
     bool started,deploying;
+    readonly string rangesFile=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"SdeSuporte","deployment-ranges.json");
     public DeploymentPanel(bool autoSearch=true)
     {
         Dock=DockStyle.Fill;Padding=new Padding(8);
@@ -71,7 +72,10 @@ sealed class DeploymentPanel:UserControl
         help.Text="Pesquise nas faixas internas autorizadas. Confirme os dados e selecione as máquinas para instalar ou atualizar o agente.";
         var bar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=85,AutoScroll=true};
         networks.Text=string.Join("; ",IPv4Range.LocalCidrs());
+        try{if(File.Exists(rangesFile))networks.Text=string.Join("; ",Json.Read<string[]>(rangesFile));}catch{}
         var find=new Button{Text="Localizar máquinas",AutoSize=true};find.Click+=async(_,_)=>await Scan();
+        var domain=new Button{Text="Buscar no domínio",AutoSize=true};domain.Click+=async(_,_)=>await Scan(true);
+        bar.Controls.Add(domain);
         var stop=new Button{Text="Parar busca",AutoSize=true};stop.Click+=(_,_)=>scan?.Cancel();
         var select=new Button{Text="Selecionar compatíveis",AutoSize=true};select.Click+=(_,_)=>{foreach(DataGridViewRow row in grid.Rows){var h=(NetworkHost)row.Tag!;row.Cells[0].Value=mode.SelectedIndex switch{0=>h.WinRmHttps,1=>h.WinRmKerberos,_=>h.Smb};}};
         mode.Items.AddRange(["HTTPS (sem exigir domínio)","Domínio (Kerberos)","SMB + Agendador (sem WinRM)"]);mode.SelectedIndex=2;
@@ -130,7 +134,7 @@ sealed class DeploymentPanel:UserControl
         File.WriteAllLines(dialog.FileName,lines,new System.Text.UTF8Encoding(true));
         status.Text=$"Inventário exportado: {lines.Count-1} máquina(s) em {dialog.FileName}";
     }
-    async Task Scan()
+    async Task Scan(bool domainSearch=false)
     {
         if(scan is not null||deploying)return;
         try
@@ -139,14 +143,18 @@ sealed class DeploymentPanel:UserControl
             if(ranges.Sum(r=>r.Count)>65536)throw new ArgumentException("Pesquise até 65.536 IPs por vez.");
             using var cancellation=new CancellationTokenSource();scan=cancellation;install.Enabled=false;
             var progress=new Progress<ScanProgress>(p=>{if(!IsDisposed)status.Text=$"Localizando: {p.Checked}/{p.Total} IPs • {p.Found} máquina(s) encontrada(s)";});
-            await NetworkInventory.Scan(ranges,host=>{
+            Directory.CreateDirectory(Path.GetDirectoryName(rangesFile)!);
+            Json.Write(rangesFile,ranges.Select(r=>r.Label).ToArray());
+            Action<NetworkHost> onFound=host=>{
                 if(IsDisposed)return;
                 try{BeginInvoke(new Action(()=>{if(IsDisposed)return;var existing=grid.Rows.Cast<DataGridViewRow>().FirstOrDefault(r=>((NetworkHost)r.Tag!).Address==host.Address);
                     if(existing is not null){existing.Tag=host;existing.Cells[5].Value=host.Host==host.Address?"Nome não identificado":host.Host;return;}
                     int row=grid.Rows.Add(false,host.Address,host.Host,
                     host.WinRmHttps?"WinRM HTTPS (5986)":host.WinRmKerberos?"WinRM domínio (5985)":host.Smb?"SMB (445); Agendador remoto necessário":"Respondeu; gerenciamento não detectado",
                     host.AgentPort?"Porta 7443 aberta; confirme na lista de agentes":"Cliente não confirmado",host.Host==host.Address?"Nome não identificado":host.Host,"Descrição não disponível","Sistema não identificado");grid.Rows[row].Tag=host;grid.Rows[row].Visible=(host.Address+" "+host.Host).Contains(search.Text,StringComparison.CurrentCultureIgnoreCase);}));}catch(InvalidOperationException){}
-            },progress,cancellation.Token);
+            };
+            if(domainSearch)await DomainInventory.Scan(onFound,cancellation.Token);
+            else await NetworkInventory.Scan(ranges,onFound,progress,cancellation.Token);
             if(!IsDisposed)status.Text=$"Busca concluída: {grid.Rows.Count} máquina(s). Confira os nomes e selecione os destinos.";
         }catch(OperationCanceledException){if(!IsDisposed)status.Text="Busca interrompida.";}
         catch(Exception e){if(!IsDisposed)MessageBox.Show(this,e.Message,"Localizar máquinas");}

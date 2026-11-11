@@ -9,6 +9,7 @@
  <ItemGroup>
   <Compile Include="../src/TeamAccess.cs" Link="TeamAccess.cs" />
   <Compile Include="../src/TechnicianSetup.cs" Link="TechnicianSetup.cs" />
+  <Compile Include="../src/DomainInventory.cs" Link="DomainInventory.cs" />
   <Compile Include="../src/Deployment.cs" Link="Deployment.cs" />
   <Compile Include="../src/Premium.cs" Link="Premium.cs" />
   <Compile Include="../src/NoticeImages.cs" Link="NoticeImages.cs" />
@@ -22,4 +23,3 @@
   <EmbeddedResource Include="../src/TeamDeployment.json" LogicalName="SdeSuporte.TeamDeployment" />
  </ItemGroup>
 </Project>
-
